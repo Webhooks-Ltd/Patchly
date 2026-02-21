@@ -1,5 +1,9 @@
 # 🩹 Patchly
 
+[![CI](https://github.com/Webhooks-Ltd/Patchly/actions/workflows/ci.yml/badge.svg)](https://github.com/Webhooks-Ltd/Patchly/actions/workflows/ci.yml)
+[![NuGet](https://img.shields.io/nuget/v/Patchly.svg)](https://www.nuget.org/packages/Patchly)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **The `null` vs "I didn't send this" problem — solved.**
 
 ```json
