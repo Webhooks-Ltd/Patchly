@@ -245,6 +245,48 @@ patch.Address.Provided.City  // ❌ false — city was not sent
 patch.Provided.FirstName     // ❌ false — not sent at all
 ```
 
+## 🗺️ Patch Mapping
+
+For projects with many patch endpoints, Patchly provides a structured mapping pattern that centralizes patch-to-entity logic with DI integration.
+
+**1. Define a map:**
+
+```csharp
+public class CustomerPatchMap : PatchMap<CustomerPatch, Customer>
+{
+    public override void Apply(CustomerPatch patch, Customer target)
+    {
+        if (patch.Provided.FirstName) target.GivenName = patch.FirstName;
+        if (patch.Provided.Age)       target.Age = patch.Age ?? 0;
+    }
+}
+```
+
+**2. Register all maps at startup:**
+
+```csharp
+builder.Services.AddPatchlyMaps();
+```
+
+**3. Inject `IPatchApplier` in your endpoints:**
+
+```csharp
+[HttpPatch("{id}")]
+public IActionResult Patch(int id, CustomerPatch patch, [FromServices] IPatchApplier patchApplier)
+{
+    var customer = _repo.Get(id);
+    patchApplier.Apply(patch, customer);
+    _repo.Save(customer);
+    return Ok(customer);
+}
+```
+
+The source generator discovers all `PatchMap<,>` subclasses and generates:
+- **`PatchApplier`** — the `IPatchApplier` implementation that dispatches to the correct map
+- **`AddPatchlyMaps()`** — registers all maps and the applier with DI
+
+Maps can take constructor dependencies (loggers, services, etc.) since they're resolved from the container. One map per `(TPatch, TTarget)` pair — the generator emits a compile error (`PATCH020`) if duplicates are found.
+
 ## 🚀 Native AOT Support
 
 Patchly works with Native AOT (`PublishAot=true`) on .NET 8+. Add `PatchlyJsonTypeInfoResolver` to your resolver chain **before** your `JsonSerializerContext`:
@@ -316,6 +358,7 @@ The source generator catches problems at compile time so you don't have to debug
 | PATCH006 | Class must have an accessible parameterless constructor |
 | PATCH013 | `init`-only properties are not supported |
 | PATCH014 | `[JsonExtensionData]` is not supported |
+| PATCH020 | Duplicate `PatchMap` for the same `(TPatch, TTarget)` pair |
 
 ### Warnings
 

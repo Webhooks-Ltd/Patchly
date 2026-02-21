@@ -15,8 +15,9 @@ Users install with `dotnet add package Patchly`. Nothing else needed.
 
 ### Core Library (Patchly)
 
-- **Zero NuGet dependencies.** System.Text.Json ships in-box with .NET 6+. Do not add a package reference for it.
-- If a new dependency is genuinely needed, it must be discussed and justified — every runtime dependency is a cost to consumers.
+- **One NuGet dependency: `Microsoft.Extensions.DependencyInjection.Abstractions` (6.0.0).** Required for the generated `AddPatchlyMaps()` extension method (`IServiceCollection`). This package is already in-box with every ASP.NET Core app (ships with the shared framework). The NuGet reference only materializes for bare `net6.0` console apps, where it's a tiny, well-known dependency.
+- System.Text.Json ships in-box with .NET 6+. Do not add a package reference for it.
+- If additional dependencies are genuinely needed, they must be discussed and justified — every runtime dependency is a cost to consumers.
 
 ### Source Generator (Patchly.Generators)
 
