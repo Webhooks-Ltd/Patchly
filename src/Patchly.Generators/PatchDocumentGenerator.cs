@@ -447,15 +447,25 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
             sb.AppendLine("                {");
             sb.AppendLine("                    reader.Read();");
 
+            var typeofName = GetTypeofSafeTypeName(prop);
+
             if (prop.HasJsonNumberHandling && prop.JsonNumberHandlingValue != null)
             {
                 sb.AppendLine($"                    var propOptions = new System.Text.Json.JsonSerializerOptions(options);");
                 sb.AppendLine($"                    propOptions.NumberHandling = (System.Text.Json.Serialization.JsonNumberHandling){prop.JsonNumberHandlingValue};");
+                sb.AppendLine($"#if NET8_0_OR_GREATER");
+                sb.AppendLine($"                    result.{prop.PropertyName} = System.Text.Json.JsonSerializer.Deserialize(ref reader, (System.Text.Json.Serialization.Metadata.JsonTypeInfo<{typeofName}>)propOptions.GetTypeInfo(typeof({typeofName})))!;");
+                sb.AppendLine($"#else");
                 sb.AppendLine($"                    result.{prop.PropertyName} = System.Text.Json.JsonSerializer.Deserialize<{prop.TypeName}>(ref reader, propOptions)!;");
+                sb.AppendLine($"#endif");
             }
             else
             {
+                sb.AppendLine($"#if NET8_0_OR_GREATER");
+                sb.AppendLine($"                    result.{prop.PropertyName} = System.Text.Json.JsonSerializer.Deserialize(ref reader, (System.Text.Json.Serialization.Metadata.JsonTypeInfo<{typeofName}>)options.GetTypeInfo(typeof({typeofName})))!;");
+                sb.AppendLine($"#else");
                 sb.AppendLine($"                    result.{prop.PropertyName} = System.Text.Json.JsonSerializer.Deserialize<{prop.TypeName}>(ref reader, options)!;");
+                sb.AppendLine($"#endif");
             }
 
             sb.AppendLine($"                    result._providedProperties.Add(nameof({className}.{prop.PropertyName}));");
@@ -491,10 +501,16 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
             sb.AppendLine($"                var propName = {jsonName};");
             sb.AppendLine($"                var propValue = value.{prop.PropertyName};");
 
+            var writeTypeofName = GetTypeofSafeTypeName(prop);
+
             sb.AppendLine($"                if (ShouldWriteProperty(propValue, options))");
             sb.AppendLine($"                {{");
             sb.AppendLine($"                    writer.WritePropertyName(propName);");
+            sb.AppendLine($"#if NET8_0_OR_GREATER");
+            sb.AppendLine($"                    System.Text.Json.JsonSerializer.Serialize(writer, propValue!, (System.Text.Json.Serialization.Metadata.JsonTypeInfo<{writeTypeofName}>)options.GetTypeInfo(typeof({writeTypeofName})));");
+            sb.AppendLine($"#else");
             sb.AppendLine($"                    System.Text.Json.JsonSerializer.Serialize(writer, propValue, options);");
+            sb.AppendLine($"#endif");
             sb.AppendLine($"                }}");
             sb.AppendLine($"            }}");
         }
@@ -538,6 +554,15 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
         sb.AppendLine("        }");
 
         sb.AppendLine("    }");
+    }
+
+    private static string GetTypeofSafeTypeName(PatchPropertyModel prop)
+    {
+        if (prop.IsNullableValueType)
+            return prop.TypeName;
+        if (prop.TypeName.EndsWith("?"))
+            return prop.TypeName.Substring(0, prop.TypeName.Length - 1);
+        return prop.TypeName;
     }
 
     private static string EscapeString(string s) =>

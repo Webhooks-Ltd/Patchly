@@ -29,3 +29,21 @@ jobs:
       - run: dotnet build --no-restore
 
       - run: dotnet test --no-build
+
+  aot-smoketest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - run: dotnet pack src/Patchly/Patchly.csproj -c Release -o artifacts -p:Version=1.0.0
+
+      - run: dotnet publish smoketest/SmokeTest/SmokeTest.csproj -c Release
+
+      - run: ./smoketest/SmokeTest/bin/Release/net10.0/linux-x64/publish/SmokeTest

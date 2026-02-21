@@ -100,6 +100,14 @@ internal static class Diagnostics
         DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
 
+    public static readonly DiagnosticDescriptor DuplicatePatchMap = new(
+        "PATCH020",
+        "Duplicate PatchMap for the same (TPatch, TTarget) pair",
+        "Multiple PatchMap classes ({0}) map the same pair {1}; only one map per (TPatch, TTarget) pair is allowed",
+        "Patchly",
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     public static readonly DiagnosticDescriptor TypeSkipped = new(
         "PATCH099",
         "[PatchDocument] type was skipped",
