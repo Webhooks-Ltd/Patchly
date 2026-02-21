@@ -78,13 +78,13 @@ Patchly gives you **null vs absent tracking** with a **clean OpenAPI schema** an
 
 ## 📊 How It Compares
 
-| | Null vs absent | Clean OpenAPI | System.Text.Json | No heavy deps | Source-generated |
-|---|---|---|---|---|---|
-| **🩹 Patchly** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| JsonPatchDocument | ✅ | ❌ | .NET 10+ only | ✅ | ❌ |
-| OData Delta\<T\> | ✅ | ❌ | ❌ | ❌ | ❌ |
-| JsonMergePatch | ✅ | ❌ | Separate pkg | ✅ | ❌ |
-| Nullable DTO | ❌ | ✅ | ✅ | ✅ | N/A |
+| | Null vs absent | Clean OpenAPI | System.Text.Json | No heavy deps | Source-generated | Native AOT |
+|---|---|---|---|---|---|---|
+| **🩹 Patchly** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (.NET 8+) |
+| JsonPatchDocument | ✅ | ❌ | .NET 10+ only | ✅ | ❌ | ❌ |
+| OData Delta\<T\> | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| JsonMergePatch | ✅ | ❌ | Separate pkg | ✅ | ❌ | ❌ |
+| Nullable DTO | ❌ | ✅ | ✅ | ✅ | N/A | ✅ |
 
 ## 📦 Installation
 
@@ -244,6 +244,30 @@ patch.Address.Provided.Line1 // ✅ true — line1 was sent within address
 patch.Address.Provided.City  // ❌ false — city was not sent
 patch.Provided.FirstName     // ❌ false — not sent at all
 ```
+
+## 🚀 Native AOT Support
+
+Patchly works with Native AOT (`PublishAot=true`) on .NET 8+. Add `PatchlyJsonTypeInfoResolver` to your resolver chain **before** your `JsonSerializerContext`:
+
+```csharp
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.TypeInfoResolverChain.Insert(0, PatchlyJsonTypeInfoResolver.Default);
+});
+```
+
+Or with manual `JsonSerializerOptions`:
+
+```csharp
+var options = new JsonSerializerOptions
+{
+    TypeInfoResolver = JsonTypeInfoResolver.Combine(
+        PatchlyJsonTypeInfoResolver.Default,
+        AppJsonContext.Default)
+};
+```
+
+**Important:** The Patchly resolver handles `[PatchDocument]` types only. Property-level types (e.g., `string`, `int?`, `List<string>`) must be covered by your `JsonSerializerContext`. Non-AOT apps don't need any of this — the existing `[JsonConverter]` attribute continues to work automatically.
 
 ## 🎛️ Supported JSON Attributes
 
