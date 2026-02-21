@@ -18,7 +18,7 @@ Console.WriteLine($"Name provided: {patch!.Provided.Name}");
 Console.WriteLine($"Age provided: {patch.Provided.Age}");
 Console.WriteLine($"Email provided: {patch.Provided.Email}");
 Console.WriteLine($"Name value: {patch.Name}");
-Console.WriteLine($"Age value: {patch.Age}");
+Console.WriteLine($"Age value: {patch.Age?.ToString() ?? "null"}");
 
 if (!patch.Provided.Name || !patch.Provided.Age || patch.Provided.Email)
     throw new Exception("Tracking mismatch");
