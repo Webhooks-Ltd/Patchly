@@ -1,21 +1,22 @@
-# Patchly
+# 🩹 Patchly
 
-Source-generated partial update (HTTP PATCH) DTOs for ASP.NET Core.
+**The `null` vs "I didn't send this" problem — solved.**
 
-Patchly lets you send only the fields you want to update — including explicit nulls — while generating clean OpenAPI schemas that work seamlessly with NSwag, Kiota, and other client generators.
+```json
+{ "firstName": "Mark", "age": null }
+```
 
-## The Problem
+☝️ `firstName` → update it. `age` → clear it. `lastName` → **not sent, don't touch it.**
 
-Every .NET developer building PATCH endpoints hits the same issue: **how do you tell the difference between "the client sent `null`" and "the client didn't send this field at all"?**
+Every PATCH endpoint needs this. Nullable DTOs can't do it. Patchly can.
 
-- **Nullable DTOs** can't distinguish null from absent — a null property could mean "clear this" or "I didn't send this"
-- **JsonPatchDocument** uses an awkward operation-array format (`[{ "op": "replace", "path": "/name", "value": "Mark" }]`) that generates terrible API clients
-- **OData Delta\<T\>** pulls in the entire OData stack for one feature
-- **Wrapper types** like `Patchable<T>` and `JsonMergePatchDocument<T>` leak into your OpenAPI schema and produce ugly generated clients
+```bash
+dotnet add package Patchly
+```
 
-## How Patchly Works
+## ⚡ 30-Second Overview
 
-Define a partial class with `[PatchDocument]`:
+**1. Define your patch DTO:**
 
 ```csharp
 [PatchDocument]
@@ -27,26 +28,7 @@ public partial class CustomerPatch
 }
 ```
 
-Patchly source-generates:
-- A `System.Text.Json` `JsonConverter` that tracks which properties were present in the JSON during deserialization
-- A `Provided` accessor with per-property booleans for ergonomic checking (`patch.Provided.FirstName`)
-- `WasProvided(string propertyName)` for generic/dynamic scenarios
-
-### On the wire
-
-The client sends plain JSON with only the fields it wants to change:
-
-```json
-{ "firstName": "Mark", "age": null }
-```
-
-- `firstName` → updated to `"Mark"`
-- `age` → explicitly set to `null`
-- `lastName` → not sent, **left unchanged**
-
-### In your endpoint
-
-Controllers work out of the box with `[FromBody]`:
+**2. Use it in your endpoint:**
 
 ```csharp
 [HttpPatch("{id}")]
@@ -65,7 +47,97 @@ public IActionResult Patch(int id, CustomerPatch patch)
 }
 ```
 
-Minimal APIs work the same way — no configuration required:
+**3. That's it.** No configuration. No middleware. No reflection. It just works.
+
+## 🤔 Why Does This Exist?
+
+Every .NET developer building PATCH endpoints hits the same wall: **how do you tell the difference between "the client sent `null`" and "the client didn't send this field at all"?**
+
+The existing options all suck:
+
+| Approach | What's wrong with it |
+|---|---|
+| 🚫 **Nullable DTOs** | Can't distinguish `null` from absent — was that `null` intentional or just a default? |
+| 🚫 **JsonPatchDocument** | Awkward operation-array format (`[{ "op": "replace", "path": "/name" }]`) — terrible generated clients |
+| 🚫 **OData Delta\<T\>** | Pulls in the entire OData stack for one feature |
+| 🚫 **Wrapper types** | `Patchable<T>`, `JsonMergePatchDocument<T>` — leak into your OpenAPI schema, ugly clients |
+
+Patchly gives you **null vs absent tracking** with a **clean OpenAPI schema** and **zero ceremony**.
+
+## ✅ What You Get
+
+| Feature | |
+|---|---|
+| 🔍 **Null vs absent** | Distinguishes "set to null" from "not provided" |
+| 📄 **Clean OpenAPI** | No wrapper types in the schema — NSwag, Kiota, etc. just work |
+| ⚙️ **System.Text.Json native** | Respects `[JsonPropertyName]`, `[JsonIgnore]`, naming policies, and more |
+| 🏎️ **Source-generated** | AOT and trimming friendly — no runtime reflection |
+| 🪄 **Zero ceremony** | Just add `[PatchDocument]` to a partial class |
+| 🏗️ **Nested tracking** | `[PatchDocument]` properties track independently per level |
+| 🛡️ **Compile-time diagnostics** | Catches mistakes before you run |
+
+## 📊 How It Compares
+
+| | Null vs absent | Clean OpenAPI | System.Text.Json | No heavy deps | Source-generated |
+|---|---|---|---|---|---|
+| **🩹 Patchly** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| JsonPatchDocument | ✅ | ❌ | .NET 10+ only | ✅ | ❌ |
+| OData Delta\<T\> | ✅ | ❌ | ❌ | ❌ | ❌ |
+| JsonMergePatch | ✅ | ❌ | Separate pkg | ✅ | ❌ |
+| Nullable DTO | ❌ | ✅ | ✅ | ✅ | N/A |
+
+## 📦 Installation
+
+```bash
+dotnet add package Patchly
+```
+
+**Requirements:** .NET 6+ · C# 9+ (C# 12+ for `required` keyword)
+
+Patchly uses System.Text.Json, which ships in-box with .NET 6+. No additional dependencies.
+
+## 🔧 How It Works Under the Hood
+
+Patchly source-generates three things for each `[PatchDocument]` class:
+
+1. 🔄 A **`JsonConverter`** that tracks which properties were present in the JSON during deserialization
+2. ✅ A **`Provided` accessor** with per-property booleans (`patch.Provided.FirstName`)
+3. 🔗 A **`WasProvided(string)`** method for generic/dynamic scenarios
+
+### 📡 On the Wire
+
+The client sends plain JSON — only the fields it wants to change:
+
+```json
+{ "firstName": "Mark", "age": null }
+```
+
+- `firstName` → updated to `"Mark"`
+- `age` → explicitly set to `null`
+- `lastName` → not sent, **left unchanged**
+
+### 🖥️ In Your Endpoint
+
+Works with controllers:
+
+```csharp
+[HttpPatch("{id}")]
+public IActionResult Patch(int id, CustomerPatch patch)
+{
+    var customer = _repo.Get(id);
+
+    if (patch.Provided.FirstName)
+        customer.FirstName = patch.FirstName;
+
+    if (patch.Provided.Age)
+        customer.Age = patch.Age;  // could be null — that's intentional
+
+    _repo.Save(customer);
+    return Ok(customer);
+}
+```
+
+And minimal APIs — no configuration required:
 
 ```csharp
 app.MapPatch("/customers/{id}", (int id, CustomerPatch patch) =>
@@ -83,11 +155,11 @@ app.MapPatch("/customers/{id}", (int id, CustomerPatch patch) =>
 });
 ```
 
-The `Provided` accessor is IntelliSense-discoverable — no magic strings. For generic or dynamic scenarios, `WasProvided(string)` and `ProvidedProperties` are also available via the [`IPatchDocument` interface](#ipatchdocument-interface).
+> 💡 The `Provided` accessor is IntelliSense-discoverable — no magic strings. For generic/dynamic scenarios, `WasProvided(string)` and `ProvidedProperties` are also available via the [`IPatchDocument` interface](#-ipatchdocument-interface).
 
-### In your OpenAPI schema
+### 📋 In Your OpenAPI Schema
 
-The schema is just a plain object with nullable properties — no wrapper types, no special formats:
+Just a plain object with nullable properties — no wrapper types, no special formats:
 
 ```json
 {
@@ -104,13 +176,13 @@ The schema is just a plain object with nullable properties — no wrapper types,
 
 NSwag, Kiota, and other generators produce a clean, idiomatic client.
 
-## Client-Side Behaviour
+## 📲 Client-Side Behaviour
 
 How the client sends partial updates depends on which client generator you use.
 
 ### Kiota (recommended)
 
-Kiota's [backing store](https://learn.microsoft.com/en-us/openapi/kiota/backing-store) tracks which properties your code actually sets and only serializes those — including explicit nulls. This means Kiota clients work perfectly with Patchly out of the box:
+Kiota's [backing store](https://learn.microsoft.com/en-us/openapi/kiota/backing-store) tracks which properties your code actually sets and only serializes those — including explicit nulls. Works perfectly with Patchly out of the box:
 
 ```csharp
 var patch = new CustomerPatch();
@@ -123,7 +195,7 @@ await client.Customers[id].PatchAsync(patch);
 
 ### NSwag
 
-NSwag generates plain DTOs with no change tracking, so by default `System.Text.Json` serializes all properties — including untouched nulls. To avoid unintended null updates, configure your HTTP client serializer to skip nulls:
+NSwag generates plain DTOs with no change tracking, so by default `System.Text.Json` serializes all properties. Configure your serializer to skip nulls:
 
 ```csharp
 var options = new JsonSerializerOptions
@@ -132,7 +204,7 @@ var options = new JsonSerializerOptions
 };
 ```
 
-This covers most cases: unset properties are null and get omitted. The trade-off is that you can't explicitly send `null` to clear a field via the generated client. For that edge case, construct the request manually:
+This covers most cases. The trade-off is you can't explicitly send `null` to clear a field. For that edge case, construct the request manually:
 
 ```csharp
 var body = new JsonObject
@@ -142,54 +214,7 @@ var body = new JsonObject
 };
 ```
 
-## Features
-
-- **Null vs absent** — distinguishes "set to null" from "not provided"
-- **OpenAPI transparent** — no wrapper types in the schema, clean generated clients
-- **System.Text.Json native** — respects `[JsonPropertyName]`, `[JsonIgnore]`, `[JsonInclude]`, naming policies, and more
-- **Source-generated** — AOT and trimming friendly, no runtime reflection
-- **Zero ceremony** — just add `[PatchDocument]` to a partial class
-- **Nested tracking** — `[PatchDocument]` properties track independently per level
-- **Compile-time diagnostics** — catches common mistakes (non-partial classes, structs, init-only properties) before you run
-
-## How It Compares
-
-| | Null vs absent | Clean OpenAPI schema | System.Text.Json | No heavy dependencies | Source-generated |
-|---|---|---|---|---|---|
-| **Patchly** | Yes | Yes | Yes | Yes | Yes |
-| JsonPatchDocument | Yes | No (operation array) | .NET 10+ only | Yes | No |
-| OData Delta\<T\> | Yes | No (wrapper type) | No | No (full OData stack) | No |
-| JsonMergePatch | Yes | No (wrapper type) | Separate package | Yes | No |
-| Nullable DTO (manual) | No | Yes | Yes | Yes | N/A |
-
-## Installation
-
-```bash
-dotnet add package Patchly
-```
-
-### Requirements
-
-- .NET 6 or later
-- C# 12+ (for `required` keyword support) or C# 9+ (without `required`)
-
-Patchly uses System.Text.Json, which ships in-box with .NET 6+. No additional dependencies are required.
-
-## Supported JSON Attributes
-
-Patchly respects standard System.Text.Json attributes on your properties:
-
-| Attribute | Effect |
-|---|---|
-| `[JsonPropertyName("name")]` | Overrides the JSON property name used during deserialization |
-| `[JsonIgnore]` | Excludes the property from serialization, deserialization, and tracking |
-| `[JsonInclude]` | Includes non-public properties in serialization and tracking |
-| `[JsonNumberHandling(...)]` | Applies per-property number handling (e.g., `AllowReadingFromString`) |
-| `required` keyword | Supported — the generated converter applies `[SetsRequiredMembers]` internally |
-
-The generated converter also works with all `JsonSerializerOptions` configuration: naming policies, `PropertyNameCaseInsensitive`, `DefaultIgnoreCondition`, and `JsonSerializerDefaults.Web`.
-
-## Nested Patch Documents
+## 🏗️ Nested Patch Documents
 
 When a property's type is itself a `[PatchDocument]`, tracking works independently at each level:
 
@@ -214,13 +239,27 @@ public partial class CustomerPatch
 ```
 
 ```csharp
-patch.Provided.Address      // true — address object was sent
-patch.Address.Provided.Line1 // true — line1 was sent within address
-patch.Address.Provided.City  // false — city was not sent
-patch.Provided.FirstName     // false — not sent at all
+patch.Provided.Address       // ✅ true — address object was sent
+patch.Address.Provided.Line1 // ✅ true — line1 was sent within address
+patch.Address.Provided.City  // ❌ false — city was not sent
+patch.Provided.FirstName     // ❌ false — not sent at all
 ```
 
-## IPatchDocument Interface
+## 🎛️ Supported JSON Attributes
+
+Patchly respects standard System.Text.Json attributes on your properties:
+
+| Attribute | Effect |
+|---|---|
+| `[JsonPropertyName("name")]` | Overrides the JSON property name used during deserialization |
+| `[JsonIgnore]` | Excludes the property from serialization, deserialization, and tracking |
+| `[JsonInclude]` | Includes non-public properties in serialization and tracking |
+| `[JsonNumberHandling(...)]` | Applies per-property number handling (e.g., `AllowReadingFromString`) |
+| `required` keyword | Supported — the generated converter applies `[SetsRequiredMembers]` internally |
+
+The generated converter also works with all `JsonSerializerOptions` configuration: naming policies, `PropertyNameCaseInsensitive`, `DefaultIgnoreCondition`, and `JsonSerializerDefaults.Web`.
+
+## 🔗 IPatchDocument Interface
 
 All generated patch documents implement `IPatchDocument`, which exposes:
 
@@ -237,9 +276,9 @@ public void ApplyPatch<T>(T patch, Action<T> apply) where T : IPatchDocument
 }
 ```
 
-## Diagnostics
+## 🛡️ Diagnostics
 
-The source generator emits diagnostics to catch problems at compile time.
+The source generator catches problems at compile time so you don't have to debug them at runtime.
 
 ### Errors
 
@@ -263,6 +302,6 @@ The source generator emits diagnostics to catch problems at compile time.
 | PATCH012 | Read-only property will be excluded from deserialization and tracking |
 | PATCH015 | `[JsonConstructor]` is ignored by the generated converter |
 
-## License
+## 📄 License
 
 MIT
