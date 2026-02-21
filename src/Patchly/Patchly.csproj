@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+  </PropertyGroup>
+
+  <PropertyGroup Label="NuGet">
+    <PackageId>Patchly</PackageId>
+    <Description>Source-generated partial update (HTTP PATCH) DTOs for ASP.NET Core. Distinguishes null from absent with clean OpenAPI schemas.</Description>
+    <PackageTags>patch;partial-update;aspnetcore;source-generator;system-text-json;openapi</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/Webhooks-Ltd/Patchly</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Patchly.Generators\Patchly.Generators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\Patchly.Generators\bin\$(Configuration)\netstandard2.0\Patchly.Generators.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs"
+          Visible="false" />
+  </ItemGroup>
+
+</Project>

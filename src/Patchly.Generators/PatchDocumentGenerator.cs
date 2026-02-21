@@ -1,0 +1,491 @@
+using System.Collections.Immutable;
+using System.Text;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+
+namespace Patchly.Generators;
+
+[Generator(LanguageNames.CSharp)]
+public sealed class PatchDocumentGenerator : IIncrementalGenerator
+{
+    private static readonly string s_version =
+        typeof(PatchDocumentGenerator).Assembly.GetName().Version?.ToString() ?? "1.0.0";
+
+    public void Initialize(IncrementalGeneratorInitializationContext context)
+    {
+        var pipeline = context.SyntaxProvider.ForAttributeWithMetadataName(
+            "Patchly.PatchDocumentAttribute",
+            predicate: static (node, _) => node is ClassDeclarationSyntax or StructDeclarationSyntax or RecordDeclarationSyntax,
+            transform: static (ctx, ct) => TransformType(ctx, ct));
+
+        context.RegisterSourceOutput(pipeline, static (spc, result) =>
+        {
+            foreach (var diag in result.Diagnostics)
+                spc.ReportDiagnostic(diag.ToDiagnostic());
+
+            if (result.Model is { } model)
+                spc.AddSource($"{model.ClassName}.g.cs", GenerateSource(model));
+        });
+    }
+
+    private static (PatchClassModel? Model, EquatableArray<DiagnosticInfo> Diagnostics) TransformType(
+        GeneratorAttributeSyntaxContext ctx, System.Threading.CancellationToken ct)
+    {
+        var diagnostics = ImmutableArray.CreateBuilder<DiagnosticInfo>();
+        var symbol = (INamedTypeSymbol)ctx.TargetSymbol;
+        var syntax = ctx.TargetNode;
+        var location = syntax.GetLocation();
+        var name = symbol.Name;
+
+        try
+        {
+            if (symbol.TypeKind == TypeKind.Struct)
+            {
+                diagnostics.Add(DiagnosticInfo.Create(Diagnostics.AppliedToStruct, location, name));
+                return (null, new EquatableArray<DiagnosticInfo>(diagnostics.ToImmutable()));
+            }
+
+            if (symbol.IsRecord)
+            {
+                diagnostics.Add(DiagnosticInfo.Create(Diagnostics.AppliedToRecord, location, name));
+                return (null, new EquatableArray<DiagnosticInfo>(diagnostics.ToImmutable()));
+            }
+
+            if (symbol.IsAbstract)
+            {
+                diagnostics.Add(DiagnosticInfo.Create(Diagnostics.AppliedToAbstractClass, location, name));
+                return (null, new EquatableArray<DiagnosticInfo>(diagnostics.ToImmutable()));
+            }
+
+            if (symbol.TypeParameters.Length > 0)
+            {
+                diagnostics.Add(DiagnosticInfo.Create(Diagnostics.AppliedToGenericClass, location, name));
+                return (null, new EquatableArray<DiagnosticInfo>(diagnostics.ToImmutable()));
+            }
+
+            if (syntax is ClassDeclarationSyntax classDecl && !classDecl.Modifiers.Any(SyntaxKind.PartialKeyword))
+            {
+                diagnostics.Add(DiagnosticInfo.Create(Diagnostics.NotPartialClass, location, name));
+                return (null, new EquatableArray<DiagnosticInfo>(diagnostics.ToImmutable()));
+            }
+
+            if (!HasAccessibleParameterlessConstructor(symbol))
+            {
+                diagnostics.Add(DiagnosticInfo.Create(Diagnostics.NoParameterlessConstructor, location, name));
+                return (null, new EquatableArray<DiagnosticInfo>(diagnostics.ToImmutable()));
+            }
+
+            foreach (var ctor in symbol.Constructors)
+            {
+                if (ctor.IsImplicitlyDeclared) continue;
+                foreach (var attr in ctor.GetAttributes())
+                {
+                    if (attr.AttributeClass?.Name == "JsonConstructorAttribute" &&
+                        attr.AttributeClass.ContainingNamespace.ToDisplayString() == "System.Text.Json.Serialization")
+                    {
+                        diagnostics.Add(DiagnosticInfo.Create(Diagnostics.JsonConstructorIgnored, ctor.Locations.FirstOrDefault() ?? location, name));
+                    }
+                }
+            }
+
+            var hasErrors = false;
+            var properties = ImmutableArray.CreateBuilder<PatchPropertyModel>();
+            var hasRequiredMembers = false;
+
+            foreach (var member in symbol.GetMembers())
+            {
+                ct.ThrowIfCancellationRequested();
+                if (member is not IPropertySymbol prop || prop.IsStatic || prop.IsIndexer)
+                    continue;
+
+                var propAccessibility = GetAccessibility(prop);
+                var hasJsonInclude = HasAttribute(prop, "System.Text.Json.Serialization.JsonIncludeAttribute");
+                var isPublic = prop.DeclaredAccessibility == Accessibility.Public;
+
+                if (!isPublic && !hasJsonInclude)
+                    continue;
+
+                var hasJsonIgnore = HasAttribute(prop, "System.Text.Json.Serialization.JsonIgnoreAttribute");
+                var hasJsonExtensionData = HasAttribute(prop, "System.Text.Json.Serialization.JsonExtensionDataAttribute");
+
+                if (hasJsonExtensionData)
+                {
+                    diagnostics.Add(DiagnosticInfo.Create(Diagnostics.JsonExtensionDataProperty, prop.Locations.FirstOrDefault() ?? location, prop.Name, name));
+                    hasErrors = true;
+                    continue;
+                }
+
+                var isReadOnly = prop.SetMethod == null;
+                var isInitOnly = prop.SetMethod?.IsInitOnly == true;
+
+                if (isInitOnly)
+                {
+                    diagnostics.Add(DiagnosticInfo.Create(Diagnostics.InitOnlyProperty, prop.Locations.FirstOrDefault() ?? location, prop.Name, name));
+                    hasErrors = true;
+                    continue;
+                }
+
+                if (isReadOnly)
+                {
+                    diagnostics.Add(DiagnosticInfo.Create(Diagnostics.ReadOnlyProperty, prop.Locations.FirstOrDefault() ?? location, prop.Name, name));
+                    continue;
+                }
+
+                var isNonNullableValueType = prop.Type.IsValueType && prop.Type.NullableAnnotation != NullableAnnotation.Annotated &&
+                                             prop.Type.OriginalDefinition.SpecialType != SpecialType.System_Nullable_T;
+
+                if (isNonNullableValueType)
+                {
+                    diagnostics.Add(DiagnosticInfo.Create(Diagnostics.NonNullableValueType, prop.Locations.FirstOrDefault() ?? location, prop.Name, name));
+                }
+
+                var jsonPropertyName = GetJsonPropertyName(prop);
+
+                var hasJsonNumberHandling = false;
+                string? jsonNumberHandlingValue = null;
+                foreach (var attr in prop.GetAttributes())
+                {
+                    if (attr.AttributeClass?.Name == "JsonNumberHandlingAttribute" &&
+                        attr.AttributeClass.ContainingNamespace.ToDisplayString() == "System.Text.Json.Serialization")
+                    {
+                        hasJsonNumberHandling = true;
+                        if (attr.ConstructorArguments.Length > 0)
+                            jsonNumberHandlingValue = attr.ConstructorArguments[0].Value?.ToString();
+                    }
+                }
+
+                if (prop.IsRequired)
+                    hasRequiredMembers = true;
+
+                properties.Add(new PatchPropertyModel(
+                    PropertyName: prop.Name,
+                    TypeName: prop.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                    JsonPropertyName: jsonPropertyName,
+                    IsNullableValueType: prop.Type.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T || prop.Type.NullableAnnotation == NullableAnnotation.Annotated && prop.Type.IsValueType,
+                    IsNonNullableValueType: isNonNullableValueType,
+                    HasJsonIgnore: hasJsonIgnore,
+                    HasJsonInclude: hasJsonInclude,
+                    HasJsonNumberHandling: hasJsonNumberHandling,
+                    JsonNumberHandlingValue: jsonNumberHandlingValue,
+                    IsReadOnly: isReadOnly,
+                    IsInitOnly: isInitOnly,
+                    HasJsonExtensionData: hasJsonExtensionData,
+                    IsRequired: prop.IsRequired,
+                    Accessibility: propAccessibility));
+            }
+
+            if (hasErrors)
+                return (null, new EquatableArray<DiagnosticInfo>(diagnostics.ToImmutable()));
+
+            var hasTrackedProperties = false;
+            for (var i = 0; i < properties.Count; i++)
+            {
+                if (!properties[i].HasJsonIgnore)
+                {
+                    hasTrackedProperties = true;
+                    break;
+                }
+            }
+
+            if (!hasTrackedProperties)
+            {
+                diagnostics.Add(DiagnosticInfo.Create(Diagnostics.NoPublicProperties, location, name));
+            }
+
+            var accessibility = symbol.DeclaredAccessibility switch
+            {
+                Microsoft.CodeAnalysis.Accessibility.Public => "public",
+                Microsoft.CodeAnalysis.Accessibility.Internal => "internal",
+                Microsoft.CodeAnalysis.Accessibility.Protected => "protected",
+                Microsoft.CodeAnalysis.Accessibility.ProtectedOrInternal => "protected internal",
+                Microsoft.CodeAnalysis.Accessibility.ProtectedAndInternal => "private protected",
+                _ => "internal"
+            };
+
+            var ns = symbol.ContainingNamespace.IsGlobalNamespace
+                ? ""
+                : symbol.ContainingNamespace.ToDisplayString();
+
+            var model = new PatchClassModel(
+                ClassName: name,
+                Namespace: ns,
+                Accessibility: accessibility,
+                HasRequiredMembers: hasRequiredMembers,
+                Properties: new EquatableArray<PatchPropertyModel>(properties.ToImmutable()));
+
+            return (model, new EquatableArray<DiagnosticInfo>(diagnostics.ToImmutable()));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            diagnostics.Add(DiagnosticInfo.Create(Diagnostics.TypeSkipped, location, name));
+            return (null, new EquatableArray<DiagnosticInfo>(diagnostics.ToImmutable()));
+        }
+    }
+
+    private static bool HasAccessibleParameterlessConstructor(INamedTypeSymbol symbol)
+    {
+        var hasInstanceCtor = false;
+        foreach (var c in symbol.Constructors)
+        {
+            if (c.IsStatic) continue;
+            hasInstanceCtor = true;
+            if (c.Parameters.Length == 0 &&
+                c.DeclaredAccessibility is Microsoft.CodeAnalysis.Accessibility.Public
+                    or Microsoft.CodeAnalysis.Accessibility.Internal
+                    or Microsoft.CodeAnalysis.Accessibility.Protected
+                    or Microsoft.CodeAnalysis.Accessibility.ProtectedOrInternal)
+            {
+                return true;
+            }
+        }
+        return !hasInstanceCtor;
+    }
+
+    private static bool HasAttribute(IPropertySymbol prop, string fullName)
+    {
+        foreach (var attr in prop.GetAttributes())
+        {
+            var attrClass = attr.AttributeClass;
+            if (attrClass == null) continue;
+            var full = attrClass.ContainingNamespace.ToDisplayString() + "." + attrClass.Name;
+            if (full == fullName) return true;
+        }
+        return false;
+    }
+
+    private static string? GetJsonPropertyName(IPropertySymbol prop)
+    {
+        foreach (var attr in prop.GetAttributes())
+        {
+            if (attr.AttributeClass?.Name == "JsonPropertyNameAttribute" &&
+                attr.AttributeClass.ContainingNamespace.ToDisplayString() == "System.Text.Json.Serialization" &&
+                attr.ConstructorArguments.Length > 0)
+            {
+                return attr.ConstructorArguments[0].Value?.ToString();
+            }
+        }
+        return null;
+    }
+
+    private static string GetAccessibility(IPropertySymbol prop) =>
+        prop.DeclaredAccessibility switch
+        {
+            Microsoft.CodeAnalysis.Accessibility.Public => "public",
+            Microsoft.CodeAnalysis.Accessibility.Internal => "internal",
+            Microsoft.CodeAnalysis.Accessibility.Protected => "protected",
+            Microsoft.CodeAnalysis.Accessibility.ProtectedOrInternal => "protected internal",
+            Microsoft.CodeAnalysis.Accessibility.ProtectedAndInternal => "private protected",
+            Microsoft.CodeAnalysis.Accessibility.Private => "private",
+            _ => "public"
+        };
+
+    private static string GenerateSource(PatchClassModel model)
+    {
+        var sb = new StringBuilder();
+        var tracked = new List<PatchPropertyModel>();
+        foreach (var p in model.Properties)
+        {
+            if (!p.HasJsonIgnore) tracked.Add(p);
+        }
+
+        sb.AppendLine("// <auto-generated/>");
+        sb.AppendLine("#nullable enable");
+        sb.AppendLine();
+
+        if (!string.IsNullOrEmpty(model.Namespace))
+        {
+            sb.AppendLine($"namespace {model.Namespace};");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine($"[System.CodeDom.Compiler.GeneratedCode(\"Patchly.Generators\", \"{s_version}\")]");
+        sb.AppendLine($"[System.Text.Json.Serialization.JsonConverter(typeof({model.ClassName}.{model.ClassName}JsonConverter))]");
+        sb.AppendLine($"{model.Accessibility} partial class {model.ClassName} : Patchly.IPatchDocument");
+        sb.AppendLine("{");
+
+        if (model.HasRequiredMembers)
+        {
+            sb.AppendLine("    [System.Diagnostics.CodeAnalysis.SetsRequiredMembers]");
+            sb.AppendLine($"    private {model.ClassName}(bool _) {{ }}");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("    [System.Text.Json.Serialization.JsonIgnore]");
+        sb.AppendLine("    private readonly System.Collections.Generic.HashSet<string> _providedProperties = new(System.StringComparer.OrdinalIgnoreCase);");
+        sb.AppendLine();
+
+        sb.AppendLine("    public bool WasProvided(string propertyName) => _providedProperties.Contains(propertyName);");
+        sb.AppendLine();
+
+        sb.AppendLine("    [System.Text.Json.Serialization.JsonIgnore]");
+        sb.AppendLine("    public System.Collections.Generic.IReadOnlySet<string> ProvidedProperties => _providedProperties;");
+        sb.AppendLine();
+
+        sb.AppendLine("    [System.Text.Json.Serialization.JsonIgnore]");
+        sb.AppendLine($"    public ProvidedSet Provided => new ProvidedSet(_providedProperties);");
+        sb.AppendLine();
+
+        GenerateProvidedSet(sb, model.ClassName, tracked);
+        sb.AppendLine();
+
+        GenerateJsonConverter(sb, model.ClassName, model.HasRequiredMembers, tracked);
+
+        sb.AppendLine("}");
+
+        return sb.ToString();
+    }
+
+    private static void GenerateProvidedSet(StringBuilder sb, string className, List<PatchPropertyModel> tracked)
+    {
+        sb.AppendLine("    public readonly struct ProvidedSet");
+        sb.AppendLine("    {");
+        sb.AppendLine("        private readonly System.Collections.Generic.HashSet<string>? _set;");
+        sb.AppendLine();
+        sb.AppendLine("        internal ProvidedSet(System.Collections.Generic.HashSet<string>? set) => _set = set;");
+        sb.AppendLine();
+
+        foreach (var prop in tracked)
+        {
+            sb.AppendLine($"        public bool {prop.PropertyName} => _set?.Contains(nameof({className}.{prop.PropertyName})) ?? false;");
+        }
+
+        sb.AppendLine("    }");
+    }
+
+    private static void GenerateJsonConverter(StringBuilder sb, string className, bool hasRequiredMembers, List<PatchPropertyModel> tracked)
+    {
+        sb.AppendLine($"    private sealed class {className}JsonConverter : System.Text.Json.Serialization.JsonConverter<{className}>");
+        sb.AppendLine("    {");
+
+        sb.AppendLine($"        public override {className}? Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (reader.TokenType == System.Text.Json.JsonTokenType.Null)");
+        sb.AppendLine("                return null;");
+        sb.AppendLine();
+        sb.AppendLine("            if (reader.TokenType != System.Text.Json.JsonTokenType.StartObject)");
+        sb.AppendLine("                throw new System.Text.Json.JsonException($\"Expected StartObject, got {reader.TokenType}\");");
+        sb.AppendLine();
+        if (hasRequiredMembers)
+            sb.AppendLine($"            var result = new {className}(false);");
+        else
+            sb.AppendLine($"            var result = new {className}();");
+        sb.AppendLine();
+
+        sb.AppendLine("            while (reader.Read())");
+        sb.AppendLine("            {");
+        sb.AppendLine("                if (reader.TokenType == System.Text.Json.JsonTokenType.EndObject)");
+        sb.AppendLine("                    return result;");
+        sb.AppendLine();
+        sb.AppendLine("                if (reader.TokenType != System.Text.Json.JsonTokenType.PropertyName)");
+        sb.AppendLine("                    throw new System.Text.Json.JsonException($\"Expected PropertyName, got {reader.TokenType}\");");
+        sb.AppendLine();
+        sb.AppendLine("                var propertyName = reader.GetString()!;");
+        sb.AppendLine("                var matched = false;");
+        sb.AppendLine();
+
+        for (var i = 0; i < tracked.Count; i++)
+        {
+            var prop = tracked[i];
+            var elsePrefix = i == 0 ? "" : "else ";
+
+            sb.AppendLine($"                {elsePrefix}if (MatchesPropertyName(propertyName, nameof({className}.{prop.PropertyName}), {(prop.JsonPropertyName != null ? $"\"{EscapeString(prop.JsonPropertyName)}\"" : "null")}, options))");
+            sb.AppendLine("                {");
+            sb.AppendLine("                    reader.Read();");
+
+            if (prop.HasJsonNumberHandling && prop.JsonNumberHandlingValue != null)
+            {
+                sb.AppendLine($"                    var propOptions = new System.Text.Json.JsonSerializerOptions(options);");
+                sb.AppendLine($"                    propOptions.NumberHandling = (System.Text.Json.Serialization.JsonNumberHandling){prop.JsonNumberHandlingValue};");
+                sb.AppendLine($"                    result.{prop.PropertyName} = System.Text.Json.JsonSerializer.Deserialize<{prop.TypeName}>(ref reader, propOptions)!;");
+            }
+            else
+            {
+                sb.AppendLine($"                    result.{prop.PropertyName} = System.Text.Json.JsonSerializer.Deserialize<{prop.TypeName}>(ref reader, options)!;");
+            }
+
+            sb.AppendLine($"                    result._providedProperties.Add(nameof({className}.{prop.PropertyName}));");
+            sb.AppendLine("                    matched = true;");
+            sb.AppendLine("                }");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("                if (!matched)");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    reader.Read();");
+        sb.AppendLine("                    reader.Skip();");
+        sb.AppendLine("                }");
+
+        sb.AppendLine("            }");
+        sb.AppendLine();
+        sb.AppendLine("            return result;");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        sb.AppendLine($"        public override void Write(System.Text.Json.Utf8JsonWriter writer, {className} value, System.Text.Json.JsonSerializerOptions options)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            writer.WriteStartObject();");
+        sb.AppendLine();
+
+        foreach (var prop in tracked)
+        {
+            var jsonName = prop.JsonPropertyName != null
+                ? $"\"{EscapeString(prop.JsonPropertyName)}\""
+                : $"ResolvePropertyName(nameof({className}.{prop.PropertyName}), null, options)";
+
+            sb.AppendLine($"            {{");
+            sb.AppendLine($"                var propName = {jsonName};");
+            sb.AppendLine($"                var propValue = value.{prop.PropertyName};");
+
+            sb.AppendLine($"                if (ShouldWriteProperty(propValue, options))");
+            sb.AppendLine($"                {{");
+            sb.AppendLine($"                    writer.WritePropertyName(propName);");
+            sb.AppendLine($"                    System.Text.Json.JsonSerializer.Serialize(writer, propValue, options);");
+            sb.AppendLine($"                }}");
+            sb.AppendLine($"            }}");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("            writer.WriteEndObject();");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        sb.AppendLine("        private static bool MatchesPropertyName(string jsonName, string csharpName, string? explicitJsonName, System.Text.Json.JsonSerializerOptions options)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (explicitJsonName != null)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                return options.PropertyNameCaseInsensitive");
+        sb.AppendLine("                    ? string.Equals(jsonName, explicitJsonName, System.StringComparison.OrdinalIgnoreCase)");
+        sb.AppendLine("                    : string.Equals(jsonName, explicitJsonName, System.StringComparison.Ordinal);");
+        sb.AppendLine("            }");
+        sb.AppendLine();
+        sb.AppendLine("            var expectedName = options.PropertyNamingPolicy?.ConvertName(csharpName) ?? csharpName;");
+        sb.AppendLine("            return options.PropertyNameCaseInsensitive");
+        sb.AppendLine("                ? string.Equals(jsonName, expectedName, System.StringComparison.OrdinalIgnoreCase)");
+        sb.AppendLine("                : string.Equals(jsonName, expectedName, System.StringComparison.Ordinal);");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        sb.AppendLine("        private static string ResolvePropertyName(string csharpName, string? explicitJsonName, System.Text.Json.JsonSerializerOptions options)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (explicitJsonName != null) return explicitJsonName;");
+        sb.AppendLine("            return options.PropertyNamingPolicy?.ConvertName(csharpName) ?? csharpName;");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        sb.AppendLine("        private static bool ShouldWriteProperty<T>(T value, System.Text.Json.JsonSerializerOptions options)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            return options.DefaultIgnoreCondition switch");
+        sb.AppendLine("            {");
+        sb.AppendLine("                System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull => value is not null,");
+        sb.AppendLine("                System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault => !System.Collections.Generic.EqualityComparer<T>.Default.Equals(value, default!),");
+        sb.AppendLine("                _ => true,");
+        sb.AppendLine("            };");
+        sb.AppendLine("        }");
+
+        sb.AppendLine("    }");
+    }
+
+    private static string EscapeString(string s) =>
+        s.Replace("\\", "\\\\").Replace("\"", "\\\"");
+}

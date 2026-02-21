@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Patchly/Patchly.csproj" />
+    <Project Path="src/Patchly.Generators/Patchly.Generators.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Patchly.Tests/Patchly.Tests.csproj" />
+    <Project Path="tests/Patchly.IntegrationTests/Patchly.IntegrationTests.csproj" />
+  </Folder>
+</Solution>
