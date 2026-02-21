@@ -8,16 +8,20 @@
 
   <PropertyGroup Label="NuGet">
     <PackageId>Patchly</PackageId>
-    <Description>Source-generated partial update (HTTP PATCH) DTOs for ASP.NET Core. Distinguishes null from absent with clean OpenAPI schemas.</Description>
+    <Authors>Webhooks Ltd</Authors>
+    <Copyright>Copyright (c) 2025 Webhooks Ltd</Copyright>
+    <Description>Solve the null vs not-sent problem for HTTP PATCH. Source-generated DTOs track which JSON fields were provided, with zero reflection and clean OpenAPI schemas.</Description>
     <PackageTags>patch;partial-update;aspnetcore;source-generator;system-text-json;openapi</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/Webhooks-Ltd/Patchly</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Webhooks-Ltd/Patchly</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
   </ItemGroup>
 
   <ItemGroup>

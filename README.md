@@ -372,7 +372,3 @@ The source generator catches problems at compile time so you don't have to debug
 | PATCH011 | Patch document has no public properties to track |
 | PATCH012 | Read-only property will be excluded from deserialization and tracking |
 | PATCH015 | `[JsonConstructor]` is ignored by the generated converter |
-
-## 📄 License
-
-MIT
