@@ -44,6 +44,6 @@ jobs:
 
       - run: dotnet pack src/Patchly/Patchly.csproj -c Release -o artifacts -p:Version=1.0.0
 
-      - run: dotnet publish smoketest/SmokeTest/SmokeTest.csproj -c Release
+      - run: dotnet publish tests/SmokeTest/SmokeTest.csproj -c Release -o smoketest-publish
 
-      - run: ./smoketest/SmokeTest/bin/Release/net10.0/linux-x64/publish/SmokeTest
+      - run: ./smoketest-publish/SmokeTest
