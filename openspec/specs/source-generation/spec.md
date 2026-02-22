@@ -43,6 +43,13 @@ The source generator SHALL emit a partial class file that extends the developer'
 - AND it exposes `public IReadOnlySet<string> ProvidedProperties` that returns `_providedProperties`
 - AND it exposes `public ProvidedSet Provided` that returns a new `ProvidedSet` wrapping `_providedProperties`
 
+#### Scenario: Generated converter has internal visibility
+
+- GIVEN a `[PatchDocument]` partial class `CustomerPatch`
+- WHEN the source generator runs
+- THEN the nested `CustomerPatchJsonConverter` class has `internal sealed` visibility
+- AND the converter can be instantiated by other generated code within the same assembly
+
 ### Requirement: Provided Accessor Generation
 
 The source generator SHALL emit a `Provided` property and nested `ProvidedSet` readonly struct for each `[PatchDocument]` class, providing ergonomic bool-based property tracking.
