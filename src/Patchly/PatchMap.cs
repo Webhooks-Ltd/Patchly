@@ -6,5 +6,6 @@ namespace Patchly;
 /// </summary>
 public abstract class PatchMap<TPatch, TTarget> where TPatch : IPatchDocument
 {
+    /// <summary>Applies provided fields from <paramref name="patch"/> to <paramref name="target"/>.</summary>
     public abstract void Apply(TPatch patch, TTarget target);
 }

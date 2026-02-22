@@ -392,6 +392,7 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
 
     private static void GenerateProvidedSet(StringBuilder sb, string className, List<PatchPropertyModel> tracked)
     {
+        sb.AppendLine("    /// <summary>Indicates which properties were present in the JSON payload.</summary>");
         sb.AppendLine("    public readonly struct ProvidedSet");
         sb.AppendLine("    {");
         sb.AppendLine("        private readonly System.Collections.Generic.HashSet<string>? _set;");
@@ -401,6 +402,7 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
 
         foreach (var prop in tracked)
         {
+            sb.AppendLine($"        /// <summary>Returns <c>true</c> if <see cref=\"{className}.{prop.PropertyName}\"/> was present in the JSON payload.</summary>");
             sb.AppendLine($"        public bool {prop.PropertyName} => _set?.Contains(nameof({className}.{prop.PropertyName})) ?? false;");
         }
 

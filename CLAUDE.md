@@ -11,6 +11,22 @@ Source-generated partial update (HTTP PATCH) DTOs for ASP.NET Core.
 - Follow `docs/packaging-policy.md` for all NuGet packaging, dependency, and versioning decisions
 - Use `openspec status` to check current change progress
 
+## Commit Convention
+
+Use [Conventional Commits](https://www.conventionalcommits.org/):
+
+| Prefix | When |
+|---|---|
+| `feat:` | New capability / public API |
+| `fix:` | Bug fix |
+| `docs:` | README, XML docs |
+| `chore:` | CI, build, housekeeping |
+| `refactor:` | Internal restructuring |
+| `test:` | Tests only |
+| `feat!:` / `fix!:` | Breaking change |
+
+Lowercase after prefix, imperative mood, under 72 chars. Optional scope: `feat(generator): add inheritance support`.
+
 ## Tech Stack
 
 - Core library: `net6.0`
