@@ -6,7 +6,7 @@ Define what the Patchly incremental source generator produces: the generated par
 ## Requirements
 ### Requirement: Generated Partial Class Structure
 
-The source generator SHALL emit a partial class file that extends the developer's `[PatchDocument]` class with tracking infrastructure, a custom JsonConverter, and the Provided accessor.
+The source generator SHALL emit a partial class file that extends the developer's `[PatchDocument]` class with tracking infrastructure, a custom JsonConverter, the Provided accessor, and an `internal void MarkProvided(string name)` method. The `MarkProvided` method SHALL add the property name to `_providedProperties` and provide resolver access to property tracking without exposing the field.
 
 #### Scenario: Generated file naming and content structure
 
@@ -31,6 +31,13 @@ The source generator SHALL emit a partial class file that extends the developer'
 - WHEN the source generator runs
 - THEN the generated partial class contains a field `private readonly HashSet<string> _providedProperties = new(StringComparer.OrdinalIgnoreCase);`
 - AND the field is decorated with `[System.Text.Json.Serialization.JsonIgnore]`
+
+#### Scenario: MarkProvided method is generated
+
+- GIVEN a `[PatchDocument]` partial class `CustomerPatch`
+- WHEN the source generator runs
+- THEN the generated partial class contains `internal void MarkProvided(string name) => _providedProperties.Add(name);`
+- AND the method is accessible from other generated code within the same assembly
 
 #### Scenario: IPatchDocument implementation is generated
 
