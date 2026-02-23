@@ -3,9 +3,7 @@
 ## Purpose
 
 Define the `[PatchDocument]` marker attribute and the `IPatchDocument` interface that form the public API contract of the Patchly core library.
-
 ## Requirements
-
 ### Requirement: PatchDocument Attribute Declaration
 
 The `[PatchDocument]` attribute SHALL be a marker attribute that signals the source generator to emit tracking, conversion, and application logic for the decorated class. It SHALL target classes only and is not inheritable.
@@ -136,32 +134,26 @@ The attribute and interface SHALL be correctly packaged for consumption in the `
 
 ### Requirement: Parameterless Constructor Validation
 
-The source generator SHALL verify that a `[PatchDocument]` class has an accessible parameterless constructor, since the generated `JsonConverter.Read` method must call `new T()`.
+The source generator SHALL verify that a `[PatchDocument]` class has either an accessible parameterless constructor OR a valid `[JsonConstructor]`-annotated constructor. If neither exists, the generator emits PATCH006.
 
-#### Scenario: Class without a parameterless constructor
-- **WHEN** a `[PatchDocument]` partial class has only a parameterized constructor (e.g., `public CustomerPatch(string id)`)
+#### Scenario: Class without a parameterless constructor and no JsonConstructor
+
+- **WHEN** a `[PatchDocument]` partial class has only a parameterized constructor without `[JsonConstructor]`
 - **THEN** the compiler emits diagnostic `PATCH006` with severity Error
-- **AND** the message indicates that `[PatchDocument]` classes must have an accessible parameterless constructor
+- **AND** the message indicates that `[PatchDocument]` classes must have an accessible parameterless constructor or a `[JsonConstructor]` constructor
 - **AND** no source is generated for this class
 
 #### Scenario: Class with both parameterless and parameterized constructors
+
 - **WHEN** a `[PatchDocument]` partial class has a parameterless constructor and additional parameterized constructors
 - **THEN** no diagnostic is emitted
-- **AND** source generation proceeds normally using the parameterless constructor
+- **AND** source generation proceeds using the parameterless constructor (streaming path)
 
-### Requirement: Init-Only Property Validation
+#### Scenario: Class with only a JsonConstructor constructor
 
-The source generator SHALL reject `init`-only properties because the generated converter sets properties in a loop after construction, which is incompatible with `init` accessors.
-
-#### Scenario: Init-only property emits an error
-- **WHEN** a `[PatchDocument]` partial class has a property `string? Name { get; init; }`
-- **THEN** the compiler emits diagnostic `PATCH013` with severity Error
-- **AND** the message indicates that `init`-only properties are not supported on `[PatchDocument]` classes because the generated converter cannot set them after construction
-
-#### Scenario: Mix of settable and init-only properties
-- **WHEN** a `[PatchDocument]` partial class has `string? FirstName { get; set; }` and `string? LastName { get; init; }`
-- **THEN** the compiler emits diagnostic `PATCH013` for `LastName`
-- **AND** no source is generated for the entire class (init-only property is a hard error)
+- **WHEN** a `[PatchDocument]` partial class has only a `[JsonConstructor]`-annotated parameterized constructor and no parameterless constructor
+- **THEN** no PATCH006 diagnostic is emitted
+- **AND** source generation proceeds using the buffered path with constructor invocation
 
 ### Requirement: JsonExtensionData Validation
 
@@ -171,15 +163,6 @@ The source generator SHALL reject properties decorated with `[JsonExtensionData]
 - **WHEN** a `[PatchDocument]` partial class has a property `[JsonExtensionData] public Dictionary<string, JsonElement>? Extensions { get; set; }`
 - **THEN** the compiler emits diagnostic `PATCH014` with severity Error
 - **AND** the message indicates that `[JsonExtensionData]` is not supported on `[PatchDocument]` classes
-
-### Requirement: JsonConstructor Warning
-
-The source generator SHALL warn when a `[JsonConstructor]` attribute is present because the generated converter ignores it.
-
-#### Scenario: JsonConstructor attribute emits a warning
-- **WHEN** a `[PatchDocument]` partial class has a constructor decorated with `[JsonConstructor]`
-- **THEN** the compiler emits diagnostic `PATCH015` with severity Warning
-- **AND** the message indicates that `[JsonConstructor]` is ignored by the Patchly-generated converter
 
 ### Requirement: Required Keyword Handling
 
@@ -231,3 +214,4 @@ The source generator SHALL validate that properties on a `[PatchDocument]` class
 - THEN the compiler emits diagnostic `PATCH012` with severity Warning
 - AND the message indicates that read-only properties will be tracked but cannot be set during deserialization
 - AND the property is excluded from the generated JsonConverter deserialization logic and from the Provided accessor
+

@@ -27,12 +27,24 @@ The source generator SHALL verify that a `[PatchDocument]` class has either an a
 
 ### Requirement: Init-Only Property Validation
 
-**Reason:** Init-only properties are now supported via the buffered deserialization path. PATCH013 is no longer emitted.
+The generator SHALL no longer emit PATCH013 for init-only properties. Init-only properties MUST be supported via the buffered deserialization path.
+
+#### Scenario: Init-only property no longer errors
+
+- **WHEN** a `[PatchDocument]` class has an `init`-only property
+- **THEN** PATCH013 is not emitted
+- **AND** the generator uses the buffered deserialization path
 
 **Migration:** Remove any workarounds that replaced `init` with `set` to avoid PATCH013. Init-only properties now work directly.
 
 ### Requirement: JsonConstructor Warning
 
-**Reason:** `[JsonConstructor]` is now respected by the generated converter. PATCH015 is no longer emitted.
+The generator SHALL no longer emit PATCH015 when a `[JsonConstructor]` attribute is present. `[JsonConstructor]` MUST be respected by the generated converter.
+
+#### Scenario: JsonConstructor no longer warns
+
+- **WHEN** a `[PatchDocument]` class has a `[JsonConstructor]`-annotated constructor
+- **THEN** PATCH015 is not emitted
+- **AND** the generator uses the buffered deserialization path with constructor invocation
 
 **Migration:** No action needed. Classes with `[JsonConstructor]` will now use the buffered deserialization path automatically.

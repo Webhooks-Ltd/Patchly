@@ -3,9 +3,7 @@
 ## Purpose
 
 Define what the Patchly incremental source generator produces: the generated partial class, JsonConverter, property tracking infrastructure, WasProvided method, and Provided accessor.
-
 ## Requirements
-
 ### Requirement: Generated Partial Class Structure
 
 The source generator SHALL emit a partial class file that extends the developer's `[PatchDocument]` class with tracking infrastructure, a custom JsonConverter, and the Provided accessor.
@@ -86,6 +84,13 @@ The source generator SHALL handle malformed or unresolvable user code gracefully
 
 The source generator emits a nested `JsonConverter<T>` class that uses `Utf8JsonReader` to deserialize JSON, tracking which properties were present in the payload. Per-property deserialization MUST delegate to `JsonSerializer.Deserialize<TProperty>(ref reader, options)` to respect all `JsonSerializerOptions` configuration.
 
+The converter SHALL use one of two codegen paths selected at compile time:
+
+- **Streaming path**: When the class has a parameterless constructor and all tracked properties have `set` accessors. Constructs an empty instance first, then sets properties and tracks them in the read loop.
+- **Buffered path**: When any tracked property is `init`-only OR a `[JsonConstructor]` constructor is present. Buffers deserialized values into local variables during the read loop, then constructs the instance afterward via object initializer or constructor invocation.
+
+Both paths produce identical observable behavior: the same properties are tracked, `WasProvided()` returns the same results, and `Provided` accessor works identically.
+
 #### Scenario: Converter reads known properties and tracks them
 
 - GIVEN a generated converter for `CustomerPatch` with properties `FirstName`, `LastName`, `Age`
@@ -154,6 +159,22 @@ The source generator emits a nested `JsonConverter<T>` class that uses `Utf8Json
 - WHEN the converter deserializes the payload
 - THEN the result is null (not a `CustomerPatch` instance)
 
+#### Scenario: Buffered path constructs via object initializer for init properties
+
+- GIVEN a `[PatchDocument]` class with `string? Name { get; init; }`
+- WHEN the source generator runs
+- THEN the generated converter's `Read()` method buffers `Name` into a local variable
+- AND constructs the instance using object initializer syntax: `new T { Name = _name }`
+- AND populates `_providedProperties` via `.Add()` calls for each provided property after construction
+
+#### Scenario: Buffered path constructs via constructor for JsonConstructor
+
+- GIVEN a `[PatchDocument]` class with `[JsonConstructor]` constructor `(string? name)`
+- WHEN the source generator runs
+- THEN the generated converter's `Read()` method buffers `name` into a local variable
+- AND constructs the instance using constructor invocation: `new T(_name)`
+- AND populates `_providedProperties` via `.Add()` calls for each provided property after construction
+
 ### Requirement: WasProvided Method
 
 The generated class SHALL expose a `WasProvided` method that allows developers to check whether a specific property was included in the JSON payload, regardless of its value.
@@ -220,3 +241,4 @@ The source generator SHALL be performant and MUST NOT degrade IDE responsiveness
 - GIVEN the generator's `RegisterSourceOutput` callback
 - THEN it does not accept or use a `Compilation` parameter
 - AND all necessary information has been extracted in earlier pipeline stages
+
