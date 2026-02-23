@@ -348,7 +348,7 @@ public void ApplyPatch<T>(T patch, Action<T> apply) where T : IPatchDocument
 
 ## 🛡️ Diagnostics
 
-The source generator catches problems at compile time so you don't have to debug them at runtime.
+The source generator catches problems at compile time so you don't have to debug them at runtime. See [Diagnostics Reference](docs/diagnostics.md) for detailed explanations and rationale.
 
 ### Errors
 
