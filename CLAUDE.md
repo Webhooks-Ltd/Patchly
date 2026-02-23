@@ -5,6 +5,7 @@ Source-generated partial update (HTTP PATCH) DTOs for ASP.NET Core.
 ## Rules
 
 - When adding or changing features, update `README.md` to reflect the current state of the library
+- When adding or changing features, update `CHANGELOG.md` under the `[Unreleased]` section
 - Don't add comments to code unless absolutely necessary
 - Read `openspec/project.md` for full project context, architecture, and conventions
 - Read `openspec/specs/` for detailed requirements and scenarios before implementing

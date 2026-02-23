@@ -11,8 +11,10 @@ internal readonly struct DiagnosticInfo : IEquatable<DiagnosticInfo>
     public LinePositionSpan LinePositionSpan { get; }
     public string Arg0 { get; }
     public string? Arg1 { get; }
+    public string? Arg2 { get; }
+    public string? Arg3 { get; }
 
-    private DiagnosticInfo(DiagnosticDescriptor descriptor, string filePath, TextSpan textSpan, LinePositionSpan linePositionSpan, string arg0, string? arg1)
+    private DiagnosticInfo(DiagnosticDescriptor descriptor, string filePath, TextSpan textSpan, LinePositionSpan linePositionSpan, string arg0, string? arg1, string? arg2, string? arg3)
     {
         Descriptor = descriptor;
         FilePath = filePath;
@@ -20,9 +22,11 @@ internal readonly struct DiagnosticInfo : IEquatable<DiagnosticInfo>
         LinePositionSpan = linePositionSpan;
         Arg0 = arg0;
         Arg1 = arg1;
+        Arg2 = arg2;
+        Arg3 = arg3;
     }
 
-    public static DiagnosticInfo Create(DiagnosticDescriptor descriptor, Location location, string arg0, string? arg1 = null)
+    public static DiagnosticInfo Create(DiagnosticDescriptor descriptor, Location location, string arg0, string? arg1 = null, string? arg2 = null, string? arg3 = null)
     {
         if (location.SourceTree != null)
         {
@@ -32,10 +36,12 @@ internal readonly struct DiagnosticInfo : IEquatable<DiagnosticInfo>
                 location.SourceSpan,
                 location.GetLineSpan().Span,
                 arg0,
-                arg1);
+                arg1,
+                arg2,
+                arg3);
         }
 
-        return new DiagnosticInfo(descriptor, "", default, default, arg0, arg1);
+        return new DiagnosticInfo(descriptor, "", default, default, arg0, arg1, arg2, arg3);
     }
 
     public Diagnostic ToDiagnostic()
@@ -44,9 +50,13 @@ internal readonly struct DiagnosticInfo : IEquatable<DiagnosticInfo>
             ? Location.None
             : Location.Create(FilePath, TextSpan, LinePositionSpan);
 
-        return Arg1 != null
-            ? Diagnostic.Create(Descriptor, location, Arg0, Arg1)
-            : Diagnostic.Create(Descriptor, location, Arg0);
+        if (Arg3 != null)
+            return Diagnostic.Create(Descriptor, location, Arg0, Arg1, Arg2, Arg3);
+        if (Arg2 != null)
+            return Diagnostic.Create(Descriptor, location, Arg0, Arg1, Arg2);
+        if (Arg1 != null)
+            return Diagnostic.Create(Descriptor, location, Arg0, Arg1);
+        return Diagnostic.Create(Descriptor, location, Arg0);
     }
 
     public bool Equals(DiagnosticInfo other) =>
@@ -55,7 +65,9 @@ internal readonly struct DiagnosticInfo : IEquatable<DiagnosticInfo>
         TextSpan.Equals(other.TextSpan) &&
         LinePositionSpan.Equals(other.LinePositionSpan) &&
         Arg0 == other.Arg0 &&
-        Arg1 == other.Arg1;
+        Arg1 == other.Arg1 &&
+        Arg2 == other.Arg2 &&
+        Arg3 == other.Arg3;
 
     public override bool Equals(object? obj) => obj is DiagnosticInfo other && Equals(other);
 
@@ -69,6 +81,8 @@ internal readonly struct DiagnosticInfo : IEquatable<DiagnosticInfo>
             hash = hash * 31 + TextSpan.GetHashCode();
             hash = hash * 31 + Arg0.GetHashCode();
             hash = hash * 31 + (Arg1?.GetHashCode() ?? 0);
+            hash = hash * 31 + (Arg2?.GetHashCode() ?? 0);
+            hash = hash * 31 + (Arg3?.GetHashCode() ?? 0);
             return hash;
         }
     }

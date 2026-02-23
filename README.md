@@ -325,9 +325,13 @@ Patchly respects standard System.Text.Json attributes on your properties:
 | `[JsonIgnore]` | Excludes the property from serialization, deserialization, and tracking |
 | `[JsonInclude]` | Includes non-public properties in serialization and tracking |
 | `[JsonNumberHandling(...)]` | Applies per-property number handling (e.g., `AllowReadingFromString`) |
+| `[JsonConstructor]` | Uses the annotated constructor for deserialization — parameters matched to properties by name |
 | `required` keyword | Supported — the generated converter applies `[SetsRequiredMembers]` internally |
+| `init` accessor | Supported — works the same as `set` properties for tracking and `Provided` |
 
 The generated converter also works with all `JsonSerializerOptions` configuration: naming policies, `PropertyNameCaseInsensitive`, `DefaultIgnoreCondition`, and `JsonSerializerDefaults.Web`.
+
+`init`-only properties and `[JsonConstructor]` constructors can be mixed freely. A class can have a `[JsonConstructor]` without a parameterless constructor. Records remain unsupported (`PATCH003`).
 
 ## 🔗 IPatchDocument Interface
 
@@ -359,10 +363,13 @@ The source generator catches problems at compile time so you don't have to debug
 | PATCH003 | `[PatchDocument]` is not supported on record types |
 | PATCH004 | `[PatchDocument]` cannot be applied to abstract classes |
 | PATCH005 | `[PatchDocument]` does not support generic type parameters |
-| PATCH006 | Class must have an accessible parameterless constructor |
-| PATCH013 | `init`-only properties are not supported |
+| PATCH006 | Class must have an accessible parameterless or `[JsonConstructor]`-annotated constructor |
 | PATCH014 | `[JsonExtensionData]` is not supported |
+| PATCH018 | Multiple `[JsonConstructor]` constructors found |
+| PATCH019 | `init`-only property not covered by `[JsonConstructor]` parameter |
 | PATCH020 | Duplicate `PatchMap` for the same `(TPatch, TTarget)` pair |
+| PATCH021 | `[JsonConstructor]` parameter type does not match property type |
+| PATCH022 | `[JsonConstructor]` missing `[SetsRequiredMembers]` on class with `required` members |
 
 ### Warnings
 
@@ -371,4 +378,10 @@ The source generator catches problems at compile time so you don't have to debug
 | PATCH010 | Non-nullable value type property cannot distinguish "not provided" from "default value" |
 | PATCH011 | Patch document has no public properties to track |
 | PATCH012 | Read-only property will be excluded from deserialization and tracking |
-| PATCH015 | `[JsonConstructor]` is ignored by the generated converter |
+| PATCH017 | `[JsonConstructor]` parameter does not match any tracked property |
+
+### Info
+
+| Code | Description |
+|---|---|
+| PATCH016 | Info: `init` properties or `[JsonConstructor]` detected — alternate codegen path used |

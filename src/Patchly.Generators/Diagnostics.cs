@@ -46,8 +46,8 @@ internal static class Diagnostics
 
     public static readonly DiagnosticDescriptor NoParameterlessConstructor = new(
         "PATCH006",
-        "[PatchDocument] class must have an accessible parameterless constructor",
-        "'{0}' has no accessible parameterless constructor; [PatchDocument] classes require one for deserialization",
+        "[PatchDocument] class must have an accessible constructor",
+        "'{0}' has no accessible parameterless constructor or [JsonConstructor] constructor; [PatchDocument] classes require one for deserialization",
         "Patchly",
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);
@@ -76,10 +76,42 @@ internal static class Diagnostics
         DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
 
-    public static readonly DiagnosticDescriptor InitOnlyProperty = new(
-        "PATCH013",
-        "Init-only property on [PatchDocument]",
-        "Property '{0}' on '{1}' is init-only; [PatchDocument] classes do not support init-only properties because the generated converter cannot set them after construction",
+    public static readonly DiagnosticDescriptor BufferedDeserialization = new(
+        "PATCH016",
+        "Buffered deserialization path used",
+        "'{0}' uses buffered deserialization because it has {1}",
+        "Patchly",
+        DiagnosticSeverity.Info,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor UnmatchedConstructorParameter = new(
+        "PATCH017",
+        "[JsonConstructor] parameter does not match any property",
+        "Constructor parameter '{0}' on '{1}' does not match any tracked property",
+        "Patchly",
+        DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor MultipleJsonConstructors = new(
+        "PATCH018",
+        "Multiple [JsonConstructor] constructors",
+        "'{0}' has multiple constructors with [JsonConstructor]; only one is allowed",
+        "Patchly",
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor InitOnlyPropertyNotCoveredByConstructor = new(
+        "PATCH019",
+        "Init-only property not covered by [JsonConstructor] parameter",
+        "Property '{0}' on '{1}' is init-only but is not covered by any [JsonConstructor] parameter and cannot be set after construction",
+        "Patchly",
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor ConstructorParameterTypeMismatch = new(
+        "PATCH021",
+        "[JsonConstructor] parameter type does not match property type",
+        "Constructor parameter '{0}' on '{1}' has type '{2}' but matched property has type '{3}'",
         "Patchly",
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);
@@ -92,12 +124,12 @@ internal static class Diagnostics
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    public static readonly DiagnosticDescriptor JsonConstructorIgnored = new(
-        "PATCH015",
-        "[JsonConstructor] is ignored by Patchly",
-        "Constructor on '{0}' has [JsonConstructor] which is ignored by the Patchly-generated converter",
+    public static readonly DiagnosticDescriptor JsonConstructorMissingSetsRequiredMembers = new(
+        "PATCH022",
+        "[JsonConstructor] missing [SetsRequiredMembers]",
+        "[JsonConstructor] on '{0}' must have [SetsRequiredMembers] because the class has required members",
         "Patchly",
-        DiagnosticSeverity.Warning,
+        DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
     public static readonly DiagnosticDescriptor DuplicatePatchMap = new(

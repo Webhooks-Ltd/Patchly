@@ -200,7 +200,7 @@ public class DiagnosticTests
     }
 
     [Fact]
-    public void PATCH013_InitOnlyProperty()
+    public void InitOnlyProperty_NowSupported_EmitsBufferedPathInfo()
     {
         const string source = """
             using Patchly;
@@ -212,7 +212,7 @@ public class DiagnosticTests
             }
             """;
 
-        AssertDiagnostic(source, "PATCH013", DiagnosticSeverity.Error);
+        AssertDiagnostic(source, "PATCH016", DiagnosticSeverity.Info);
     }
 
     [Fact]
@@ -236,7 +236,7 @@ public class DiagnosticTests
     }
 
     [Fact]
-    public void PATCH015_JsonConstructor()
+    public void JsonConstructor_Parameterless_NowSupported_EmitsBufferedPathInfo()
     {
         const string source = """
             using Patchly;
@@ -251,7 +251,196 @@ public class DiagnosticTests
             }
             """;
 
-        AssertDiagnostic(source, "PATCH015", DiagnosticSeverity.Warning);
+        AssertDiagnostic(source, "PATCH016", DiagnosticSeverity.Info);
+    }
+
+    [Fact]
+    public void PATCH016_BufferedPath_InitProperty()
+    {
+        const string source = """
+            using Patchly;
+
+            [PatchDocument]
+            public partial class CustomerPatch
+            {
+                public string? Name { get; init; }
+            }
+            """;
+
+        AssertDiagnostic(source, "PATCH016", DiagnosticSeverity.Info);
+    }
+
+    [Fact]
+    public void PATCH016_BufferedPath_JsonConstructor()
+    {
+        const string source = """
+            using Patchly;
+            using System.Text.Json.Serialization;
+
+            [PatchDocument]
+            public partial class CustomerPatch
+            {
+                [JsonConstructor]
+                public CustomerPatch(string? name) { Name = name; }
+                public string? Name { get; set; }
+            }
+            """;
+
+        AssertDiagnostic(source, "PATCH016", DiagnosticSeverity.Info);
+    }
+
+    [Fact]
+    public void PATCH017_UnmatchedConstructorParameter()
+    {
+        const string source = """
+            using Patchly;
+            using System.Text.Json.Serialization;
+
+            [PatchDocument]
+            public partial class CustomerPatch
+            {
+                [JsonConstructor]
+                public CustomerPatch(string? name, string? role = "user") { Name = name; }
+                public string? Name { get; set; }
+            }
+            """;
+
+        AssertDiagnostic(source, "PATCH017", DiagnosticSeverity.Warning);
+    }
+
+    [Fact]
+    public void PATCH017_UnmatchedConstructorParameter_NoDefault()
+    {
+        const string source = """
+            using Patchly;
+            using System.Text.Json.Serialization;
+
+            [PatchDocument]
+            public partial class CustomerPatch
+            {
+                [JsonConstructor]
+                public CustomerPatch(string? name, string? middleName) { Name = name; }
+                public string? Name { get; set; }
+            }
+            """;
+
+        AssertDiagnostic(source, "PATCH017", DiagnosticSeverity.Warning);
+    }
+
+    [Fact]
+    public void PATCH018_MultipleJsonConstructors()
+    {
+        const string source = """
+            using Patchly;
+            using System.Text.Json.Serialization;
+
+            [PatchDocument]
+            public partial class CustomerPatch
+            {
+                [JsonConstructor]
+                public CustomerPatch() { }
+                [JsonConstructor]
+                public CustomerPatch(string? name) { }
+                public string? Name { get; set; }
+            }
+            """;
+
+        AssertDiagnostic(source, "PATCH018", DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void PATCH019_InitOnlyPropertyNotCoveredByConstructor()
+    {
+        const string source = """
+            using Patchly;
+            using System.Text.Json.Serialization;
+
+            [PatchDocument]
+            public partial class CustomerPatch
+            {
+                [JsonConstructor]
+                public CustomerPatch(string? name) { Name = name; }
+                public string? Name { get; init; }
+                public int? Age { get; init; }
+            }
+            """;
+
+        AssertDiagnostic(source, "PATCH019", DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void PATCH021_ConstructorParameterTypeMismatch()
+    {
+        const string source = """
+            using Patchly;
+            using System.Text.Json.Serialization;
+
+            [PatchDocument]
+            public partial class CustomerPatch
+            {
+                [JsonConstructor]
+                public CustomerPatch(int? name) { }
+                public string? Name { get; set; }
+            }
+            """;
+
+        AssertDiagnostic(source, "PATCH021", DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void PATCH022_JsonConstructorMissingSetsRequiredMembers()
+    {
+        const string source = """
+            using Patchly;
+            using System.Text.Json.Serialization;
+
+            [PatchDocument]
+            public partial class CustomerPatch
+            {
+                [JsonConstructor]
+                public CustomerPatch(string? name) { Name = name; }
+                public required string? Name { get; set; }
+            }
+            """;
+
+        AssertDiagnostic(source, "PATCH022", DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void PATCH006_UpdatedMessage_NoParameterlessOrJsonConstructor()
+    {
+        const string source = """
+            using Patchly;
+
+            [PatchDocument]
+            public partial class CustomerPatch
+            {
+                public CustomerPatch(string id) { }
+                public string? FirstName { get; set; }
+            }
+            """;
+
+        AssertDiagnostic(source, "PATCH006", DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void JsonConstructor_OnlyParamCtor_NoError()
+    {
+        const string source = """
+            using Patchly;
+            using System.Text.Json.Serialization;
+
+            [PatchDocument]
+            public partial class CustomerPatch
+            {
+                [JsonConstructor]
+                public CustomerPatch(string? name) { Name = name; }
+                public string? Name { get; set; }
+            }
+            """;
+
+        var diagnostics = GetDiagnostics(source);
+        diagnostics.Where(d => d.Id == "PATCH006").Should().BeEmpty();
     }
 
     [Fact]

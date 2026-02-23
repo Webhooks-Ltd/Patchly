@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -84,28 +85,39 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
                 return (null, new EquatableArray<DiagnosticInfo>(diagnostics.ToImmutable()));
             }
 
-            if (!HasAccessibleParameterlessConstructor(symbol))
-            {
-                diagnostics.Add(DiagnosticInfo.Create(Diagnostics.NoParameterlessConstructor, location, name));
-                return (null, new EquatableArray<DiagnosticInfo>(diagnostics.ToImmutable()));
-            }
-
+            var jsonConstructors = new List<IMethodSymbol>();
             foreach (var ctor in symbol.Constructors)
             {
-                if (ctor.IsImplicitlyDeclared) continue;
+                if (ctor.IsImplicitlyDeclared || ctor.IsStatic) continue;
                 foreach (var attr in ctor.GetAttributes())
                 {
                     if (attr.AttributeClass?.Name == "JsonConstructorAttribute" &&
                         attr.AttributeClass.ContainingNamespace.ToDisplayString() == "System.Text.Json.Serialization")
                     {
-                        diagnostics.Add(DiagnosticInfo.Create(Diagnostics.JsonConstructorIgnored, ctor.Locations.FirstOrDefault() ?? location, name));
+                        jsonConstructors.Add(ctor);
                     }
                 }
+            }
+
+            if (jsonConstructors.Count > 1)
+            {
+                diagnostics.Add(DiagnosticInfo.Create(Diagnostics.MultipleJsonConstructors, location, name));
+                return (null, new EquatableArray<DiagnosticInfo>(diagnostics.ToImmutable()));
+            }
+
+            var hasParameterlessCtor = HasAccessibleParameterlessConstructor(symbol);
+            var jsonConstructor = jsonConstructors.Count == 1 ? jsonConstructors[0] : null;
+
+            if (!hasParameterlessCtor && jsonConstructor == null)
+            {
+                diagnostics.Add(DiagnosticInfo.Create(Diagnostics.NoParameterlessConstructor, location, name));
+                return (null, new EquatableArray<DiagnosticInfo>(diagnostics.ToImmutable()));
             }
 
             var hasErrors = false;
             var properties = ImmutableArray.CreateBuilder<PatchPropertyModel>();
             var hasRequiredMembers = false;
+            var hasInitOnlyProperties = false;
 
             foreach (var member in symbol.GetMembers())
             {
@@ -133,18 +145,14 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
                 var isReadOnly = prop.SetMethod == null;
                 var isInitOnly = prop.SetMethod?.IsInitOnly == true;
 
-                if (isInitOnly)
-                {
-                    diagnostics.Add(DiagnosticInfo.Create(Diagnostics.InitOnlyProperty, prop.Locations.FirstOrDefault() ?? location, prop.Name, name));
-                    hasErrors = true;
-                    continue;
-                }
-
                 if (isReadOnly)
                 {
                     diagnostics.Add(DiagnosticInfo.Create(Diagnostics.ReadOnlyProperty, prop.Locations.FirstOrDefault() ?? location, prop.Name, name));
                     continue;
                 }
+
+                if (isInitOnly && !hasJsonIgnore)
+                    hasInitOnlyProperties = true;
 
                 var isNonNullableValueType = prop.Type.IsValueType && prop.Type.NullableAnnotation != NullableAnnotation.Annotated &&
                                              prop.Type.OriginalDefinition.SpecialType != SpecialType.System_Nullable_T;
@@ -192,15 +200,129 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
             if (hasErrors)
                 return (null, new EquatableArray<DiagnosticInfo>(diagnostics.ToImmutable()));
 
-            var hasTrackedProperties = false;
-            for (var i = 0; i < properties.Count; i++)
+            var useBuffered = hasInitOnlyProperties || jsonConstructor != null;
+
+            var trackedProperties = new List<PatchPropertyModel>();
+            foreach (var p in properties)
             {
-                if (!properties[i].HasJsonIgnore)
-                {
-                    hasTrackedProperties = true;
-                    break;
-                }
+                if (!p.HasJsonIgnore) trackedProperties.Add(p);
             }
+
+            EquatableArray<ConstructorParameterModel>? constructorParameters = null;
+
+            if (jsonConstructor != null)
+            {
+                if (hasRequiredMembers)
+                {
+                    var hasSetsRequired = false;
+                    foreach (var attr in jsonConstructor.GetAttributes())
+                    {
+                        if (attr.AttributeClass?.Name == "SetsRequiredMembersAttribute" &&
+                            attr.AttributeClass.ContainingNamespace.ToDisplayString() == "System.Diagnostics.CodeAnalysis")
+                        {
+                            hasSetsRequired = true;
+                            break;
+                        }
+                    }
+                    if (!hasSetsRequired)
+                    {
+                        diagnostics.Add(DiagnosticInfo.Create(Diagnostics.JsonConstructorMissingSetsRequiredMembers, jsonConstructor.Locations.FirstOrDefault() ?? location, name));
+                        return (null, new EquatableArray<DiagnosticInfo>(diagnostics.ToImmutable()));
+                    }
+                }
+
+                var ctorParams = ImmutableArray.CreateBuilder<ConstructorParameterModel>();
+                foreach (var param in jsonConstructor.Parameters)
+                {
+                    string? matchedPropName = null;
+                    string? matchedPropType = null;
+                    foreach (var tracked in trackedProperties)
+                    {
+                        if (string.Equals(param.Name, tracked.PropertyName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            matchedPropName = tracked.PropertyName;
+                            matchedPropType = tracked.TypeName;
+                            break;
+                        }
+                    }
+
+                    if (matchedPropName == null)
+                    {
+                        diagnostics.Add(DiagnosticInfo.Create(Diagnostics.UnmatchedConstructorParameter, param.Locations.FirstOrDefault() ?? location, param.Name, name));
+                    }
+                    else
+                    {
+                        var paramType = param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                        if (paramType != matchedPropType)
+                        {
+                            diagnostics.Add(DiagnosticInfo.Create(Diagnostics.ConstructorParameterTypeMismatch, param.Locations.FirstOrDefault() ?? location, param.Name, name, paramType, matchedPropType));
+                            hasErrors = true;
+                        }
+                    }
+
+                    string? defaultValueExpression = null;
+                    if (param.HasExplicitDefaultValue)
+                    {
+                        var paramTypeName = param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                        defaultValueExpression = param.ExplicitDefaultValue switch
+                        {
+                            null => "null",
+                            string s => $"\"{EscapeString(s)}\"",
+                            bool b => b ? "true" : "false",
+                            char c => $"'{EscapeChar(c)}'",
+                            _ when IsEnumType(param.Type) => $"({paramTypeName}){param.ExplicitDefaultValue}",
+                            IFormattable f => f.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
+                            _ => param.ExplicitDefaultValue.ToString()
+                        };
+                    }
+
+                    ctorParams.Add(new ConstructorParameterModel(
+                        ParameterName: param.Name,
+                        TypeName: param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                        MatchedPropertyName: matchedPropName,
+                        HasDefaultValue: param.HasExplicitDefaultValue,
+                        DefaultValueExpression: defaultValueExpression));
+                }
+
+                if (hasErrors)
+                    return (null, new EquatableArray<DiagnosticInfo>(diagnostics.ToImmutable()));
+
+                foreach (var tracked in trackedProperties)
+                {
+                    if (!tracked.IsInitOnly) continue;
+                    var coveredByCtor = false;
+                    foreach (var cp in ctorParams)
+                    {
+                        if (cp.MatchedPropertyName == tracked.PropertyName)
+                        {
+                            coveredByCtor = true;
+                            break;
+                        }
+                    }
+                    if (!coveredByCtor)
+                    {
+                        diagnostics.Add(DiagnosticInfo.Create(Diagnostics.InitOnlyPropertyNotCoveredByConstructor, location, tracked.PropertyName, name));
+                        hasErrors = true;
+                    }
+                }
+
+                if (hasErrors)
+                    return (null, new EquatableArray<DiagnosticInfo>(diagnostics.ToImmutable()));
+
+                constructorParameters = new EquatableArray<ConstructorParameterModel>(ctorParams.ToImmutable());
+            }
+
+            if (useBuffered)
+            {
+                var reason = hasInitOnlyProperties && jsonConstructor != null
+                    ? "init-only properties and a [JsonConstructor] constructor"
+                    : hasInitOnlyProperties
+                        ? "init-only properties"
+                        : "a [JsonConstructor] constructor";
+                diagnostics.Add(DiagnosticInfo.Create(Diagnostics.BufferedDeserialization, location, name, reason));
+            }
+
+            var hasTrackedProperties = trackedProperties.Count > 0;
 
             if (!hasTrackedProperties)
             {
@@ -229,6 +351,8 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
                 Namespace: ns,
                 Accessibility: accessibility,
                 HasRequiredMembers: hasRequiredMembers,
+                UseBufferedDeserialization: useBuffered,
+                ConstructorParameters: constructorParameters,
                 Properties: new EquatableArray<PatchPropertyModel>(properties.ToImmutable()));
 
             return (model, new EquatableArray<DiagnosticInfo>(diagnostics.ToImmutable()));
@@ -321,7 +445,7 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
         sb.AppendLine($"{model.Accessibility} partial class {model.ClassName} : Patchly.IPatchDocument");
         sb.AppendLine("{");
 
-        if (model.HasRequiredMembers)
+        if (model.HasRequiredMembers && model.ConstructorParameters == null)
         {
             sb.AppendLine("    [System.Diagnostics.CodeAnalysis.SetsRequiredMembers]");
             sb.AppendLine($"    private {model.ClassName}(bool _) {{ }}");
@@ -346,7 +470,7 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
         GenerateProvidedSet(sb, model.ClassName, tracked);
         sb.AppendLine();
 
-        GenerateJsonConverter(sb, model.ClassName, model.HasRequiredMembers, tracked);
+        GenerateJsonConverter(sb, model, tracked);
 
         sb.AppendLine("}");
 
@@ -409,8 +533,9 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
         sb.AppendLine("    }");
     }
 
-    private static void GenerateJsonConverter(StringBuilder sb, string className, bool hasRequiredMembers, List<PatchPropertyModel> tracked)
+    private static void GenerateJsonConverter(StringBuilder sb, PatchClassModel model, List<PatchPropertyModel> tracked)
     {
+        var className = model.ClassName;
         sb.AppendLine($"    internal sealed class {className}JsonConverter : System.Text.Json.Serialization.JsonConverter<{className}>");
         sb.AppendLine("    {");
 
@@ -422,69 +547,12 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
         sb.AppendLine("            if (reader.TokenType != System.Text.Json.JsonTokenType.StartObject)");
         sb.AppendLine("                throw new System.Text.Json.JsonException($\"Expected StartObject, got {reader.TokenType}\");");
         sb.AppendLine();
-        if (hasRequiredMembers)
-            sb.AppendLine($"            var result = new {className}(false);");
+
+        if (model.UseBufferedDeserialization)
+            GenerateBufferedReadBody(sb, model, tracked);
         else
-            sb.AppendLine($"            var result = new {className}();");
-        sb.AppendLine();
+            GenerateStreamingReadBody(sb, model, tracked);
 
-        sb.AppendLine("            while (reader.Read())");
-        sb.AppendLine("            {");
-        sb.AppendLine("                if (reader.TokenType == System.Text.Json.JsonTokenType.EndObject)");
-        sb.AppendLine("                    return result;");
-        sb.AppendLine();
-        sb.AppendLine("                if (reader.TokenType != System.Text.Json.JsonTokenType.PropertyName)");
-        sb.AppendLine("                    throw new System.Text.Json.JsonException($\"Expected PropertyName, got {reader.TokenType}\");");
-        sb.AppendLine();
-        sb.AppendLine("                var propertyName = reader.GetString()!;");
-        sb.AppendLine("                var matched = false;");
-        sb.AppendLine();
-
-        for (var i = 0; i < tracked.Count; i++)
-        {
-            var prop = tracked[i];
-            var elsePrefix = i == 0 ? "" : "else ";
-
-            sb.AppendLine($"                {elsePrefix}if (MatchesPropertyName(propertyName, nameof({className}.{prop.PropertyName}), {(prop.JsonPropertyName != null ? $"\"{EscapeString(prop.JsonPropertyName)}\"" : "null")}, options))");
-            sb.AppendLine("                {");
-            sb.AppendLine("                    reader.Read();");
-
-            var typeofName = GetTypeofSafeTypeName(prop);
-
-            if (prop.HasJsonNumberHandling && prop.JsonNumberHandlingValue != null)
-            {
-                sb.AppendLine($"                    var propOptions = new System.Text.Json.JsonSerializerOptions(options);");
-                sb.AppendLine($"                    propOptions.NumberHandling = (System.Text.Json.Serialization.JsonNumberHandling){prop.JsonNumberHandlingValue};");
-                sb.AppendLine($"#if NET8_0_OR_GREATER");
-                sb.AppendLine($"                    result.{prop.PropertyName} = System.Text.Json.JsonSerializer.Deserialize(ref reader, (System.Text.Json.Serialization.Metadata.JsonTypeInfo<{typeofName}>)propOptions.GetTypeInfo(typeof({typeofName})))!;");
-                sb.AppendLine($"#else");
-                sb.AppendLine($"                    result.{prop.PropertyName} = System.Text.Json.JsonSerializer.Deserialize<{prop.TypeName}>(ref reader, propOptions)!;");
-                sb.AppendLine($"#endif");
-            }
-            else
-            {
-                sb.AppendLine($"#if NET8_0_OR_GREATER");
-                sb.AppendLine($"                    result.{prop.PropertyName} = System.Text.Json.JsonSerializer.Deserialize(ref reader, (System.Text.Json.Serialization.Metadata.JsonTypeInfo<{typeofName}>)options.GetTypeInfo(typeof({typeofName})))!;");
-                sb.AppendLine($"#else");
-                sb.AppendLine($"                    result.{prop.PropertyName} = System.Text.Json.JsonSerializer.Deserialize<{prop.TypeName}>(ref reader, options)!;");
-                sb.AppendLine($"#endif");
-            }
-
-            sb.AppendLine($"                    result._providedProperties.Add(nameof({className}.{prop.PropertyName}));");
-            sb.AppendLine("                    matched = true;");
-            sb.AppendLine("                }");
-        }
-
-        sb.AppendLine();
-        sb.AppendLine("                if (!matched)");
-        sb.AppendLine("                {");
-        sb.AppendLine("                    reader.Read();");
-        sb.AppendLine("                    reader.Skip();");
-        sb.AppendLine("                }");
-
-        sb.AppendLine("            }");
-        sb.AppendLine();
-        sb.AppendLine("            return result;");
         sb.AppendLine("        }");
         sb.AppendLine();
 
@@ -558,6 +626,217 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
         sb.AppendLine("    }");
     }
 
+    private static void GenerateStreamingReadBody(StringBuilder sb, PatchClassModel model, List<PatchPropertyModel> tracked)
+    {
+        var className = model.ClassName;
+
+        if (model.HasRequiredMembers)
+            sb.AppendLine($"            var result = new {className}(false);");
+        else
+            sb.AppendLine($"            var result = new {className}();");
+        sb.AppendLine();
+
+        sb.AppendLine("            while (reader.Read())");
+        sb.AppendLine("            {");
+        sb.AppendLine("                if (reader.TokenType == System.Text.Json.JsonTokenType.EndObject)");
+        sb.AppendLine("                    return result;");
+        sb.AppendLine();
+        sb.AppendLine("                if (reader.TokenType != System.Text.Json.JsonTokenType.PropertyName)");
+        sb.AppendLine("                    throw new System.Text.Json.JsonException($\"Expected PropertyName, got {reader.TokenType}\");");
+        sb.AppendLine();
+        sb.AppendLine("                var propertyName = reader.GetString()!;");
+        sb.AppendLine("                var matched = false;");
+        sb.AppendLine();
+
+        for (var i = 0; i < tracked.Count; i++)
+        {
+            var prop = tracked[i];
+            var elsePrefix = i == 0 ? "" : "else ";
+
+            sb.AppendLine($"                {elsePrefix}if (MatchesPropertyName(propertyName, nameof({className}.{prop.PropertyName}), {(prop.JsonPropertyName != null ? $"\"{EscapeString(prop.JsonPropertyName)}\"" : "null")}, options))");
+            sb.AppendLine("                {");
+            sb.AppendLine("                    reader.Read();");
+
+            EmitDeserializeProperty(sb, prop, $"result.{prop.PropertyName}");
+
+            sb.AppendLine($"                    result._providedProperties.Add(nameof({className}.{prop.PropertyName}));");
+            sb.AppendLine("                    matched = true;");
+            sb.AppendLine("                }");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("                if (!matched)");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    reader.Read();");
+        sb.AppendLine("                    reader.Skip();");
+        sb.AppendLine("                }");
+
+        sb.AppendLine("            }");
+        sb.AppendLine();
+        sb.AppendLine("            return result;");
+    }
+
+    private static void GenerateBufferedReadBody(StringBuilder sb, PatchClassModel model, List<PatchPropertyModel> tracked)
+    {
+        var className = model.ClassName;
+
+        foreach (var prop in tracked)
+        {
+            var localName = $"_local_{prop.PropertyName}";
+            var flagName = $"_provided_{prop.PropertyName}";
+            sb.AppendLine($"            {prop.TypeName} {localName} = default!;");
+            sb.AppendLine($"            var {flagName} = false;");
+        }
+        sb.AppendLine();
+
+        sb.AppendLine("            while (reader.Read())");
+        sb.AppendLine("            {");
+        sb.AppendLine("                if (reader.TokenType == System.Text.Json.JsonTokenType.EndObject)");
+        sb.AppendLine("                    break;");
+        sb.AppendLine();
+        sb.AppendLine("                if (reader.TokenType != System.Text.Json.JsonTokenType.PropertyName)");
+        sb.AppendLine("                    throw new System.Text.Json.JsonException($\"Expected PropertyName, got {reader.TokenType}\");");
+        sb.AppendLine();
+        sb.AppendLine("                var propertyName = reader.GetString()!;");
+        sb.AppendLine("                var matched = false;");
+        sb.AppendLine();
+
+        for (var i = 0; i < tracked.Count; i++)
+        {
+            var prop = tracked[i];
+            var elsePrefix = i == 0 ? "" : "else ";
+            var localName = $"_local_{prop.PropertyName}";
+            var flagName = $"_provided_{prop.PropertyName}";
+
+            sb.AppendLine($"                {elsePrefix}if (MatchesPropertyName(propertyName, nameof({className}.{prop.PropertyName}), {(prop.JsonPropertyName != null ? $"\"{EscapeString(prop.JsonPropertyName)}\"" : "null")}, options))");
+            sb.AppendLine("                {");
+            sb.AppendLine("                    reader.Read();");
+
+            EmitDeserializeProperty(sb, prop, localName);
+
+            sb.AppendLine($"                    {flagName} = true;");
+            sb.AppendLine("                    matched = true;");
+            sb.AppendLine("                }");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("                if (!matched)");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    reader.Read();");
+        sb.AppendLine("                    reader.Skip();");
+        sb.AppendLine("                }");
+        sb.AppendLine("            }");
+        sb.AppendLine();
+
+        if (model.ConstructorParameters != null)
+        {
+            var ctorArgs = new List<string>();
+            var ctorParams = model.ConstructorParameters.Value;
+            foreach (var cp in ctorParams)
+            {
+                if (cp.MatchedPropertyName != null)
+                {
+                    if (cp.HasDefaultValue)
+                        ctorArgs.Add($"_provided_{cp.MatchedPropertyName} ? _local_{cp.MatchedPropertyName} : {cp.DefaultValueExpression}");
+                    else
+                        ctorArgs.Add($"_local_{cp.MatchedPropertyName}");
+                }
+                else
+                {
+                    ctorArgs.Add(cp.HasDefaultValue ? cp.DefaultValueExpression! : $"default({cp.TypeName})");
+                }
+            }
+
+            sb.AppendLine($"            var result = new {className}({string.Join(", ", ctorArgs)});");
+
+            var coveredByConstructor = new HashSet<string>();
+            foreach (var cp in ctorParams)
+            {
+                if (cp.MatchedPropertyName != null)
+                    coveredByConstructor.Add(cp.MatchedPropertyName);
+            }
+
+            foreach (var prop in tracked)
+            {
+                if (coveredByConstructor.Contains(prop.PropertyName)) continue;
+                if (prop.IsInitOnly) continue;
+                sb.AppendLine($"            if (_provided_{prop.PropertyName}) result.{prop.PropertyName} = _local_{prop.PropertyName};");
+            }
+        }
+        else
+        {
+            // Init-only props must appear in the object initializer — safe to assign unconditionally
+            // because all tracked properties are nullable (enforced by PATCH010).
+            var initProps = new List<PatchPropertyModel>();
+            foreach (var prop in tracked)
+            {
+                if (prop.IsInitOnly) initProps.Add(prop);
+            }
+
+            if (initProps.Count > 0)
+            {
+                if (model.HasRequiredMembers)
+                    sb.Append($"            var result = new {className}(false) {{ ");
+                else
+                    sb.Append($"            var result = new {className} {{ ");
+
+                var first = true;
+                foreach (var prop in initProps)
+                {
+                    if (!first) sb.Append(", ");
+                    sb.Append($"{prop.PropertyName} = _local_{prop.PropertyName}");
+                    first = false;
+                }
+                sb.AppendLine(" };");
+            }
+            else
+            {
+                if (model.HasRequiredMembers)
+                    sb.AppendLine($"            var result = new {className}(false);");
+                else
+                    sb.AppendLine($"            var result = new {className}();");
+            }
+
+            foreach (var prop in tracked)
+            {
+                if (prop.IsInitOnly) continue;
+                sb.AppendLine($"            if (_provided_{prop.PropertyName}) result.{prop.PropertyName} = _local_{prop.PropertyName};");
+            }
+        }
+
+        sb.AppendLine();
+        foreach (var prop in tracked)
+        {
+            sb.AppendLine($"            if (_provided_{prop.PropertyName}) result._providedProperties.Add(nameof({className}.{prop.PropertyName}));");
+        }
+        sb.AppendLine();
+        sb.AppendLine("            return result;");
+    }
+
+    private static void EmitDeserializeProperty(StringBuilder sb, PatchPropertyModel prop, string target)
+    {
+        var typeofName = GetTypeofSafeTypeName(prop);
+
+        if (prop.HasJsonNumberHandling && prop.JsonNumberHandlingValue != null)
+        {
+            sb.AppendLine($"                    var propOptions = new System.Text.Json.JsonSerializerOptions(options);");
+            sb.AppendLine($"                    propOptions.NumberHandling = (System.Text.Json.Serialization.JsonNumberHandling){prop.JsonNumberHandlingValue};");
+            sb.AppendLine($"#if NET8_0_OR_GREATER");
+            sb.AppendLine($"                    {target} = System.Text.Json.JsonSerializer.Deserialize(ref reader, (System.Text.Json.Serialization.Metadata.JsonTypeInfo<{typeofName}>)propOptions.GetTypeInfo(typeof({typeofName})))!;");
+            sb.AppendLine($"#else");
+            sb.AppendLine($"                    {target} = System.Text.Json.JsonSerializer.Deserialize<{prop.TypeName}>(ref reader, propOptions)!;");
+            sb.AppendLine($"#endif");
+        }
+        else
+        {
+            sb.AppendLine($"#if NET8_0_OR_GREATER");
+            sb.AppendLine($"                    {target} = System.Text.Json.JsonSerializer.Deserialize(ref reader, (System.Text.Json.Serialization.Metadata.JsonTypeInfo<{typeofName}>)options.GetTypeInfo(typeof({typeofName})))!;");
+            sb.AppendLine($"#else");
+            sb.AppendLine($"                    {target} = System.Text.Json.JsonSerializer.Deserialize<{prop.TypeName}>(ref reader, options)!;");
+            sb.AppendLine($"#endif");
+        }
+    }
+
     private static string GetTypeofSafeTypeName(PatchPropertyModel prop)
     {
         if (prop.IsNullableValueType)
@@ -568,5 +847,29 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
     }
 
     private static string EscapeString(string s) =>
-        s.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        s.Replace("\\", "\\\\").Replace("\"", "\\\"")
+         .Replace("\n", "\\n").Replace("\r", "\\r")
+         .Replace("\t", "\\t").Replace("\0", "\\0");
+
+    private static string EscapeChar(char c) => c switch
+    {
+        '\\' => "\\\\",
+        '\'' => "\\'",
+        '\n' => "\\n",
+        '\r' => "\\r",
+        '\t' => "\\t",
+        '\0' => "\\0",
+        _ => c.ToString()
+    };
+
+    private static bool IsEnumType(ITypeSymbol type)
+    {
+        if (type.TypeKind == TypeKind.Enum) return true;
+        if (type is INamedTypeSymbol named &&
+            named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T &&
+            named.TypeArguments.Length == 1 &&
+            named.TypeArguments[0].TypeKind == TypeKind.Enum)
+            return true;
+        return false;
+    }
 }

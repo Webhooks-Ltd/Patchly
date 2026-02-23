@@ -3,6 +3,8 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <IsPackable>false</IsPackable>
+    <!-- Test models intentionally trigger PATCH017; #pragma doesn't suppress generator diagnostics -->
+    <NoWarn>$(NoWarn);PATCH017</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

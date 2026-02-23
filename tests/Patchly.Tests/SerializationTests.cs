@@ -7,6 +7,7 @@ public class SerializationTests
 {
     private static readonly JsonSerializerOptions CamelCase = new(JsonSerializerDefaults.Web);
     private static readonly JsonSerializerOptions PascalCase = new();
+    private static readonly JsonSerializerOptions SnakeCaseLower = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
     [Fact]
     public void PropertyPresentWithValue_WasProvidedTrue()
@@ -200,6 +201,15 @@ public class SerializationTests
     public void DefaultJsonSerializerOptions_PascalCase()
     {
         var patch = JsonSerializer.Deserialize<CustomerPatch>("""{"FirstName":"Alice"}""", PascalCase)!;
+
+        patch.FirstName.Should().Be("Alice");
+        patch.WasProvided("FirstName").Should().BeTrue();
+    }
+
+    [Fact]
+    public void SnakeCaseLowerNamingPolicy()
+    {
+        var patch = JsonSerializer.Deserialize<CustomerPatch>("""{"first_name":"Alice"}""", SnakeCaseLower)!;
 
         patch.FirstName.Should().Be("Alice");
         patch.WasProvided("FirstName").Should().BeTrue();

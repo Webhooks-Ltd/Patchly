@@ -161,11 +161,11 @@ public partial class OrderPatch
 
 ---
 
-### PATCH006 — Must have an accessible parameterless constructor
+### PATCH006 — Must have an accessible constructor
 
-**Message:** `'{0}' has no accessible parameterless constructor; [PatchDocument] classes require one for deserialization`
+**Message:** `'{0}' has no accessible parameterless constructor or [JsonConstructor] constructor; [PatchDocument] classes require one for deserialization`
 
-**Rationale:** The generated `JsonConverter.Read()` method creates an empty instance with `new T()` before reading any JSON tokens. It then sets each property as it encounters it in the token stream. Without a parameterless constructor, the converter has no way to create the initial instance.
+**Rationale:** The generated `JsonConverter.Read()` method needs a way to create an instance during deserialization. This can be either a parameterless constructor (for the streaming path) or a `[JsonConstructor]`-annotated constructor (for the buffered path). Without either, the converter has no way to create the instance.
 
 **Triggers:**
 
@@ -178,9 +178,10 @@ public partial class CustomerPatch
 }
 ```
 
-**Fix:** Add a parameterless constructor (it can be `public`, `internal`, or `protected`). You can keep additional constructors.
+**Fix:** Add a parameterless constructor, or annotate the parameterized constructor with `[JsonConstructor]`.
 
 ```csharp
+// Option 1: Parameterless constructor
 [PatchDocument]
 public partial class CustomerPatch
 {
@@ -188,32 +189,13 @@ public partial class CustomerPatch
     public CustomerPatch(string id) { }
     public string? FirstName { get; set; }
 }
-```
 
----
-
-### PATCH013 — Init-only properties are not supported
-
-**Message:** `Property '{0}' on '{1}' is init-only; [PatchDocument] classes do not support init-only properties because the generated converter cannot set them after construction`
-
-**Rationale:** The generated converter reads JSON token-by-token in a `while` loop, setting each property on an already-constructed instance as it encounters it. C# `init` accessors can only be called during object initialization (constructors or object initializer expressions), not after. The converter's streaming approach means it cannot use an object initializer, so `init` properties are unreachable.
-
-**Triggers:**
-
-```csharp
+// Option 2: [JsonConstructor]
 [PatchDocument]
 public partial class CustomerPatch
 {
-    public string? FirstName { get; init; }
-}
-```
-
-**Fix:** Use `set` instead of `init`.
-
-```csharp
-[PatchDocument]
-public partial class CustomerPatch
-{
+    [JsonConstructor]
+    public CustomerPatch(string? firstName) { FirstName = firstName; }
     public string? FirstName { get; set; }
 }
 ```
@@ -244,6 +226,64 @@ public partial class CustomerPatch
 public partial class CustomerPatch
 {
     public string? FirstName { get; set; }
+}
+```
+
+---
+
+### PATCH018 — Multiple `[JsonConstructor]` constructors
+
+**Message:** `'{0}' has multiple constructors with [JsonConstructor]; only one is allowed`
+
+**Rationale:** The generator uses the `[JsonConstructor]` constructor to determine how to construct the instance during deserialization. If multiple constructors have the attribute, the generator cannot determine which one to use.
+
+**Triggers:**
+
+```csharp
+[PatchDocument]
+public partial class CustomerPatch
+{
+    [JsonConstructor]
+    public CustomerPatch() { }
+    [JsonConstructor]
+    public CustomerPatch(string? name) { }
+    public string? Name { get; set; }
+}
+```
+
+**Fix:** Apply `[JsonConstructor]` to only one constructor.
+
+---
+
+### PATCH019 — Init-only property not covered by `[JsonConstructor]` parameter
+
+**Message:** `Property '{0}' on '{1}' is init-only but is not covered by any [JsonConstructor] parameter and cannot be set after construction`
+
+**Rationale:** When a `[JsonConstructor]` constructor is present, `init`-only properties that aren't matched by a constructor parameter cannot be set — they can't be passed through the constructor and can't be assigned after construction. The generator requires all `init`-only properties to be covered by a constructor parameter.
+
+**Triggers:**
+
+```csharp
+[PatchDocument]
+public partial class CustomerPatch
+{
+    [JsonConstructor]
+    public CustomerPatch(string? name) { Name = name; }
+    public string? Name { get; init; }
+    public int? Age { get; init; }  // not covered by constructor
+}
+```
+
+**Fix:** Add the missing property to the constructor parameters.
+
+```csharp
+[PatchDocument]
+public partial class CustomerPatch
+{
+    [JsonConstructor]
+    public CustomerPatch(string? name, int? age) { Name = name; Age = age; }
+    public string? Name { get; init; }
+    public int? Age { get; init; }
 }
 ```
 
@@ -377,23 +417,11 @@ public partial class CustomerPatch
 
 ---
 
-### PATCH015 — `[JsonConstructor]` is ignored
+### PATCH017 — `[JsonConstructor]` parameter does not match any property
 
-**Message:** `Constructor on '{0}' has [JsonConstructor] which is ignored by the Patchly-generated converter`
+**Message:** `Constructor parameter '{0}' on '{1}' does not match any tracked property`
 
-**Rationale:** `[JsonConstructor]` tells System.Text.Json's default converter to use a specific constructor during deserialization and map JSON properties to constructor parameters. Patchly replaces System.Text.Json's default converter with its own generated `JsonConverter`, which always uses the parameterless constructor. It must do this because:
-
-1. The converter needs to create an empty instance first, then populate properties one at a time as it reads the JSON token stream.
-2. Constructor-based deserialization would require buffering all properties before constructing the object, defeating the streaming approach.
-3. The converter needs mutable access to the `_providedProperties` set after construction, which requires an already-instantiated object.
-
-This means any logic you intended to run in a `[JsonConstructor]`-marked constructor — validation, defaults, computed state — will not execute during deserialization.
-
-**Common alternatives:**
-
-- **Property initializers** for default values: `public string? Status { get; set; } = "active";`
-- **`IValidatableObject` or FluentValidation** for validation that should run after deserialization
-- **`PatchMap`** for post-deserialization logic that runs when applying the patch to an entity
+**Rationale:** The generator matches `[JsonConstructor]` parameters to tracked properties by name (case-insensitive). Unmatched parameters receive their declared default value (or `default` if none is declared). This warning alerts you to parameters that will never receive a value from the JSON payload.
 
 **Triggers:**
 
@@ -402,21 +430,12 @@ This means any logic you intended to run in a `[JsonConstructor]`-marked constru
 public partial class CustomerPatch
 {
     [JsonConstructor]
-    public CustomerPatch() { }
-    public string? FirstName { get; set; }
+    public CustomerPatch(string? name, string? role = "user") { Name = name; }
+    public string? Name { get; set; }
 }
 ```
 
-**Fix:** Remove `[JsonConstructor]` and use one of the alternatives above.
-
-```csharp
-[PatchDocument]
-public partial class CustomerPatch
-{
-    public string? FirstName { get; set; }
-    public string? Status { get; set; } = "active";
-}
-```
+**Fix:** Either add a matching property or remove the unmatched parameter.
 
 ---
 
@@ -430,11 +449,86 @@ public partial class CustomerPatch
 
 ---
 
+## Info
+
+Informational diagnostics provide visibility into generator decisions. They don't indicate a problem.
+
+---
+
+### PATCH016 — Buffered deserialization path used
+
+**Message:** `'{0}' uses buffered deserialization because it has {1}`
+
+**Rationale:** The generator has two codegen paths for `JsonConverter.Read()`: a streaming path (construct first, then set properties) and a buffered path (read all properties into local variables, then construct). The buffered path is selected when the class has `init`-only properties or a `[JsonConstructor]` constructor. This info diagnostic makes the selection visible.
+
+**Triggers:** Any `[PatchDocument]` class with `init`-only properties or a `[JsonConstructor]` constructor.
+
+---
+
+### PATCH021 — Constructor parameter type does not match property type
+
+**Message:** `Constructor parameter '{0}' on '{1}' has type '{2}' but matched property has type '{3}'`
+
+**Rationale:** The generator matches `[JsonConstructor]` parameters to properties by name. When a match is found, the types must also match — the generator passes the buffered property value directly as the constructor argument.
+
+**Triggers:**
+
+```csharp
+[PatchDocument]
+public partial class CustomerPatch
+{
+    [JsonConstructor]
+    public CustomerPatch(int? name) { }
+    public string? Name { get; set; }
+}
+```
+
+**Fix:** Ensure the constructor parameter type matches the property type.
+
+---
+
+### PATCH022 — `[JsonConstructor]` missing `[SetsRequiredMembers]`
+
+**Message:** `[JsonConstructor] on '{0}' must have [SetsRequiredMembers] because the class has required members`
+
+**Rationale:** When a class has `required` members and a `[JsonConstructor]` constructor, the generated code constructs the instance via the `[JsonConstructor]` constructor. Without `[SetsRequiredMembers]`, the C# compiler would require `required` members to be set in an object initializer, but the constructor invocation path doesn't use one.
+
+**Triggers:**
+
+```csharp
+[PatchDocument]
+public partial class CustomerPatch
+{
+    [JsonConstructor]
+    public CustomerPatch(string? name) { Name = name; }
+    public required string? Name { get; set; }
+}
+```
+
+**Fix:** Add `[SetsRequiredMembers]` to the `[JsonConstructor]` constructor.
+
+```csharp
+[PatchDocument]
+public partial class CustomerPatch
+{
+    [SetsRequiredMembers]
+    [JsonConstructor]
+    public CustomerPatch(string? name) { Name = name; }
+    public required string? Name { get; set; }
+}
+```
+
+---
+
 ## How the generated converter works
 
 Understanding the converter's architecture explains why most of these restrictions exist.
 
-The generated `JsonConverter<T>.Read()` method follows this pattern:
+The generated `JsonConverter<T>.Read()` method uses one of two paths, selected at compile time:
+
+### Streaming path (default)
+
+Used when the class has a parameterless constructor and all tracked properties have `set` accessors.
 
 1. **Creates an empty instance** via `new T()` (parameterless constructor)
 2. **Reads JSON token-by-token** in a `while` loop over the `Utf8JsonReader`
@@ -443,9 +537,19 @@ The generated `JsonConverter<T>.Read()` method follows this pattern:
 5. **Records the property name** in a `_providedProperties` hash set
 6. **Returns the populated instance** when it reaches the end of the JSON object
 
-This streaming, mutation-based approach is why:
-- A parameterless constructor is required (step 1)
-- `init`-only properties don't work (step 4 happens after construction)
+### Buffered path
+
+Used when any tracked property is `init`-only or a `[JsonConstructor]` constructor is present.
+
+1. **Declares local variables** for each tracked property and a `bool` flag per property
+2. **Reads JSON token-by-token** into the local variables, setting flags for provided properties
+3. **Constructs the instance** after the read loop via object initializer (for `init` properties) or constructor invocation (for `[JsonConstructor]`)
+4. **Populates `_providedProperties`** by calling `.Add()` for each provided property
+5. **Returns the constructed instance**
+
+Both paths produce identical observable behavior. The streaming path avoids extra allocations and is used for the common case. The buffered path enables `init`-only properties and `[JsonConstructor]` support.
+
+Common restrictions across both paths:
 - Structs don't work (mutations would be lost on copy)
-- `[JsonConstructor]` is ignored (the converter never calls it)
 - `[JsonExtensionData]` is unsupported (unrecognized properties are skipped, not captured)
+- Records are blocked (value-based equality and compiler-generated members conflict with tracking)

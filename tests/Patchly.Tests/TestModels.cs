@@ -93,3 +93,92 @@ public partial class RequiredPatch
     public required string? FirstName { get; set; }
     public string? LastName { get; set; }
 }
+
+[PatchDocument]
+public partial class InitOnlyPatch
+{
+    public string? FirstName { get; init; }
+    public string? LastName { get; init; }
+}
+
+[PatchDocument]
+public partial class MixedInitSetPatch
+{
+    public string? Name { get; init; }
+    public int? Age { get; set; }
+}
+
+[PatchDocument]
+public partial class RequiredInitPatch
+{
+    public required string? Name { get; init; }
+    public string? Other { get; init; }
+}
+
+[PatchDocument]
+public partial class JsonIgnoreInitPatch
+{
+    [JsonIgnore]
+    public string? Internal { get; init; }
+    public string? Name { get; set; }
+}
+
+[PatchDocument]
+public partial class PrivateInitPatch
+{
+    public string? Name { get; private init; }
+}
+
+[PatchDocument]
+public partial class JsonConstructorBasicPatch
+{
+    [JsonConstructor]
+    public JsonConstructorBasicPatch(string? firstName, string? lastName) { FirstName = firstName; LastName = lastName; }
+    public string? FirstName { get; set; }
+    public string? LastName { get; set; }
+}
+
+[PatchDocument]
+public partial class JsonConstructorWithInitPatch
+{
+    [JsonConstructor]
+    public JsonConstructorWithInitPatch(string? name, int? age) { Name = name; Age = age; }
+    public string? Name { get; init; }
+    public int? Age { get; init; }
+}
+
+[PatchDocument]
+public partial class JsonConstructorMixedPatch
+{
+    [JsonConstructor]
+    public JsonConstructorMixedPatch(string? name) { Name = name; }
+    public string? Name { get; set; }
+    public int? Age { get; set; }
+}
+
+[PatchDocument]
+public partial class JsonConstructorDefaultValuePatch
+{
+    [JsonConstructor]
+    public JsonConstructorDefaultValuePatch(string? name, string? role = "user") { Name = name; Role = role; }
+    public string? Name { get; set; }
+    public string? Role { get; set; }
+}
+
+[PatchDocument]
+public partial class JsonConstructorUnmatchedNoDefaultPatch
+{
+    [JsonConstructor]
+    public JsonConstructorUnmatchedNoDefaultPatch(string? name, string? middleName) { Name = name; }
+    public string? Name { get; set; }
+}
+
+[PatchDocument]
+public partial class RequiredInitWithSetsRequiredPatch
+{
+    [SetsRequiredMembers]
+    [JsonConstructor]
+    public RequiredInitWithSetsRequiredPatch(string? name) { Name = name; }
+
+    public required string? Name { get; init; }
+}

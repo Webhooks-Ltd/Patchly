@@ -6,4 +6,6 @@ internal sealed record PatchClassModel(
     string Namespace,
     string Accessibility,
     bool HasRequiredMembers,
+    bool UseBufferedDeserialization,
+    EquatableArray<ConstructorParameterModel>? ConstructorParameters,
     EquatableArray<PatchPropertyModel> Properties);
