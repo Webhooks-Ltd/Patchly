@@ -51,7 +51,13 @@ public IActionResult Patch(int id, CustomerPatch patch)
 }
 ```
 
-**3. That's it.** No configuration. No middleware. No reflection. It just works.
+**3. Register in your web app (for OpenAPI & minimal APIs):**
+
+```csharp
+builder.Services.AddPatchly();
+```
+
+**4. That's it.** No middleware. No reflection. It just works.
 
 ## 🤔 Why Does This Exist?
 
@@ -141,9 +147,13 @@ public IActionResult Patch(int id, CustomerPatch patch)
 }
 ```
 
-And minimal APIs — no configuration required:
+And minimal APIs:
 
 ```csharp
+builder.Services.AddPatchly();
+
+// ...
+
 app.MapPatch("/customers/{id}", (int id, CustomerPatch patch) =>
 {
     var customer = repo.Get(id);
@@ -161,9 +171,16 @@ app.MapPatch("/customers/{id}", (int id, CustomerPatch patch) =>
 
 > 💡 The `Provided` accessor is IntelliSense-discoverable — no magic strings. For generic/dynamic scenarios, `WasProvided(string)` and `ProvidedProperties` are also available via the [`IPatchDocument` interface](#-ipatchdocument-interface).
 
-### 📋 In Your OpenAPI Schema
+### 📋 OpenAPI Support
 
-Just a plain object with nullable properties — no wrapper types, no special formats:
+Call `AddPatchly()` at startup to get correct OpenAPI schemas for your patch types:
+
+```csharp
+builder.Services.AddPatchly();
+builder.Services.AddOpenApi();
+```
+
+This inserts the Patchly type info resolver into the JSON serialization pipeline, giving the OpenAPI schema generator full visibility into your patch document properties:
 
 ```json
 {
@@ -179,6 +196,18 @@ Just a plain object with nullable properties — no wrapper types, no special fo
 ```
 
 NSwag, Kiota, and other generators produce a clean, idiomatic client.
+
+> **Without `AddPatchly()`**, the `[JsonConverter]` attribute on generated classes causes `JsonSchemaExporter` to produce empty schemas (`{ }`). The converter still works for deserialization — only the schema is affected.
+>
+> **MVC controllers** use separate JSON options. To configure the resolver for MVC:
+> ```csharp
+> builder.Services.Configure<Microsoft.AspNetCore.Mvc.JsonOptions>(o =>
+>     o.JsonSerializerOptions.TypeInfoResolverChain.Insert(0, PatchlyJsonTypeInfoResolver.Default));
+> ```
+>
+> **Buffered-path types** (init-only properties or `[JsonConstructor]`) produce empty OpenAPI schemas. This is a known limitation — these types use a converter-based resolver path that cannot be introspected by `JsonSchemaExporter`.
+>
+> **Do not** add Patchly converters directly to `options.Converters` when the resolver is active — this would override the resolver and produce empty schemas.
 
 ## 📲 Client-Side Behaviour
 
@@ -293,16 +322,17 @@ Maps can take constructor dependencies (loggers, services, etc.) since they're r
 
 ## 🚀 Native AOT Support
 
-Patchly works with Native AOT (`PublishAot=true`) on .NET 8+. Add `PatchlyJsonTypeInfoResolver` to your resolver chain **before** your `JsonSerializerContext`:
+Patchly works with Native AOT (`PublishAot=true`) on .NET 8+.
+
+**For web apps**, `AddPatchly()` handles everything:
 
 ```csharp
-builder.Services.ConfigureHttpJsonOptions(options =>
-{
-    options.SerializerOptions.TypeInfoResolverChain.Insert(0, PatchlyJsonTypeInfoResolver.Default);
-});
+builder.Services.AddPatchly();
 ```
 
-Or with manual `JsonSerializerOptions`:
+This inserts `PatchlyJsonTypeInfoResolver` at position 0 in the minimal API JSON options resolver chain.
+
+**For non-web apps** or manual configuration, add the resolver to your options **before** your `JsonSerializerContext`:
 
 ```csharp
 var options = new JsonSerializerOptions

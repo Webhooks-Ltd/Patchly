@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-02-23
+
+### Added
+
+- `AddPatchly()` extension method for ASP.NET Core service registration — registers `PatchlyJsonTypeInfoResolver` into minimal API JSON options
+- Correct OpenAPI schemas for streaming-path `[PatchDocument]` types when `AddPatchly()` is configured
+
+### Changed
+
+- `PatchlyJsonTypeInfoResolver` now returns Object-kinded `JsonTypeInfo` with populated `Properties` for streaming-path types instead of converter-wrapped `Kind = None` (fixes empty OpenAPI schemas)
+- Buffered-path types (init-only / `[JsonConstructor]`) continue to use the converter-based resolver path
+
 ## [0.2.0]
 
 ### Added

@@ -212,7 +212,7 @@ public sealed class PatchMapGenerator : IIncrementalGenerator
         sb.AppendLine("namespace Microsoft.Extensions.DependencyInjection;");
         sb.AppendLine();
         sb.AppendLine($"[global::System.CodeDom.Compiler.GeneratedCode(\"Patchly.Generators\", \"{s_version}\")]");
-        sb.AppendLine("internal static class PatchlyServiceCollectionExtensions");
+        sb.AppendLine("internal static partial class PatchlyServiceCollectionExtensions");
         sb.AppendLine("{");
 
         sb.AppendLine("    /// <summary>");

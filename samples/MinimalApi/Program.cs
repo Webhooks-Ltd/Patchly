@@ -1,7 +1,11 @@
 using Patchly;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddPatchly();
+builder.Services.AddOpenApi();
 var app = builder.Build();
+
+app.MapOpenApi();
 
 var customers = new Dictionary<int, Customer>
 {

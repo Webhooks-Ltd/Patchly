@@ -88,6 +88,19 @@ public class ResolverTests
     }
 
     [Fact]
+    public void Resolver_StreamingPath_ReturnsObjectKindedTypeInfo()
+    {
+        var resolver = PatchlyJsonTypeInfoResolver.Default;
+        var options = new JsonSerializerOptions();
+
+        var typeInfo = resolver.GetTypeInfo(typeof(CustomerPatch), options);
+
+        typeInfo.Should().NotBeNull();
+        typeInfo!.Kind.Should().Be(JsonTypeInfoKind.Object);
+        typeInfo.Properties.Should().NotBeEmpty();
+    }
+
+    [Fact]
     public void Resolver_ReturnsNullForUnknownTypes()
     {
         var resolver = PatchlyJsonTypeInfoResolver.Default;

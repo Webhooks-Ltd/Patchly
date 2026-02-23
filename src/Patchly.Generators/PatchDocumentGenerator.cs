@@ -42,6 +42,28 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
 
             spc.AddSource("PatchlyJsonTypeInfoResolver.g.cs", GenerateResolver(models));
         });
+
+        var hasAspNetCore = context.CompilationProvider
+            .Select(static (compilation, _) =>
+            {
+                foreach (var asm in compilation.ReferencedAssemblyNames)
+                {
+                    if (asm.Name == "Microsoft.AspNetCore.Http")
+                        return true;
+                }
+                return false;
+            });
+
+        var extensionInput = collected.Combine(hasAspNetCore);
+
+        context.RegisterSourceOutput(extensionInput, static (spc, data) =>
+        {
+            var (models, hasAspNet) = data;
+            if (models.Length == 0 || !hasAspNet)
+                return;
+
+            spc.AddSource("PatchlyServiceCollectionExtensions.g.cs", GenerateServiceCollectionExtensions());
+        });
     }
 
     private static (PatchClassModel? Model, EquatableArray<DiagnosticInfo> Diagnostics) TransformType(
@@ -448,7 +470,7 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
         if (model.HasRequiredMembers && model.ConstructorParameters == null)
         {
             sb.AppendLine("    [System.Diagnostics.CodeAnalysis.SetsRequiredMembers]");
-            sb.AppendLine($"    private {model.ClassName}(bool _) {{ }}");
+            sb.AppendLine($"    internal {model.ClassName}(bool _) {{ }}");
             sb.AppendLine();
         }
 
@@ -465,6 +487,9 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
 
         sb.AppendLine("    [System.Text.Json.Serialization.JsonIgnore]");
         sb.AppendLine($"    public ProvidedSet Provided => new ProvidedSet(_providedProperties);");
+        sb.AppendLine();
+
+        sb.AppendLine("    internal void MarkProvided(string name) => _providedProperties.Add(name);");
         sb.AppendLine();
 
         GenerateProvidedSet(sb, model.ClassName, tracked);
@@ -497,10 +522,63 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
         for (var i = 0; i < models.Length; i++)
         {
             var model = models[i];
+            var fqn = model.FullyQualifiedName;
             var elsePrefix = i == 0 ? "" : "else ";
-            sb.AppendLine($"        {elsePrefix}if (type == typeof({model.FullyQualifiedName}))");
+            sb.AppendLine($"        {elsePrefix}if (type == typeof({fqn}))");
             sb.AppendLine("        {");
-            sb.AppendLine($"            return System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<{model.FullyQualifiedName}>(options, new {model.FullyQualifiedName}.{model.ClassName}JsonConverter());");
+
+            if (model.UseBufferedDeserialization)
+            {
+                sb.AppendLine($"            return System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<{fqn}>(options, new {fqn}.{model.ClassName}JsonConverter());");
+            }
+            else
+            {
+                sb.AppendLine($"            var typeInfo = System.Text.Json.Serialization.Metadata.JsonTypeInfo.CreateJsonTypeInfo<{fqn}>(options);");
+
+                if (model.HasRequiredMembers)
+                    sb.AppendLine($"            typeInfo.CreateObject = static () => new {fqn}(false);");
+                else
+                    sb.AppendLine($"            typeInfo.CreateObject = static () => new {fqn}();");
+                sb.AppendLine();
+
+                var tracked = new List<PatchPropertyModel>();
+                foreach (var p in model.Properties)
+                {
+                    if (!p.HasJsonIgnore) tracked.Add(p);
+                }
+
+                foreach (var prop in tracked)
+                {
+                    var typeofName = GetTypeofSafeTypeName(prop);
+
+                    sb.AppendLine("            {");
+
+                    if (prop.JsonPropertyName != null)
+                    {
+                        sb.AppendLine($"                var prop = typeInfo.CreateJsonPropertyInfo(typeof({typeofName}), \"{EscapeString(prop.JsonPropertyName)}\");");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"                var jsonName = options.PropertyNamingPolicy?.ConvertName(\"{prop.PropertyName}\") ?? \"{prop.PropertyName}\";");
+                        sb.AppendLine($"                var prop = typeInfo.CreateJsonPropertyInfo(typeof({typeofName}), jsonName);");
+                    }
+
+                    sb.AppendLine($"                prop.Get = static obj => (({fqn})obj!).{prop.PropertyName};");
+                    sb.AppendLine($"                prop.Set = static (obj, val) => {{ var t = ({fqn})obj!; t.{prop.PropertyName} = ({prop.TypeName})val!; t.MarkProvided(\"{prop.PropertyName}\"); }};");
+
+                    if (prop.HasJsonNumberHandling && prop.JsonNumberHandlingValue != null)
+                    {
+                        sb.AppendLine($"                prop.NumberHandling = (System.Text.Json.Serialization.JsonNumberHandling){prop.JsonNumberHandlingValue};");
+                    }
+
+                    sb.AppendLine("                typeInfo.Properties.Add(prop);");
+                    sb.AppendLine("            }");
+                }
+
+                sb.AppendLine();
+                sb.AppendLine("            return typeInfo;");
+            }
+
             sb.AppendLine("        }");
         }
 
@@ -511,6 +589,29 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
         sb.AppendLine();
         sb.AppendLine("#endif");
 
+        return sb.ToString();
+    }
+
+    private static string GenerateServiceCollectionExtensions()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("// <auto-generated/>");
+        sb.AppendLine("#nullable enable");
+        sb.AppendLine("#if NET8_0_OR_GREATER");
+        sb.AppendLine();
+        sb.AppendLine("namespace Microsoft.Extensions.DependencyInjection;");
+        sb.AppendLine();
+        sb.AppendLine("internal static partial class PatchlyServiceCollectionExtensions");
+        sb.AppendLine("{");
+        sb.AppendLine("    public static global::Microsoft.Extensions.DependencyInjection.IServiceCollection AddPatchly(this global::Microsoft.Extensions.DependencyInjection.IServiceCollection services)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        services.ConfigureHttpJsonOptions(static o =>");
+        sb.AppendLine("            o.SerializerOptions.TypeInfoResolverChain.Insert(0, global::Patchly.PatchlyJsonTypeInfoResolver.Default));");
+        sb.AppendLine("        return services;");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+        sb.AppendLine();
+        sb.AppendLine("#endif");
         return sb.ToString();
     }
 
