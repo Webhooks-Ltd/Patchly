@@ -197,7 +197,7 @@ This inserts the Patchly type info resolver into the JSON serialization pipeline
 
 NSwag, Kiota, and other generators produce a clean, idiomatic client.
 
-> **Without `AddPatchly()`**, the `[JsonConverter]` attribute on generated classes causes `JsonSchemaExporter` to produce empty schemas (`{ }`). The converter still works for deserialization — only the schema is affected.
+> **Without `AddPatchly()`**, the `[JsonConverter]` attribute on generated classes causes `JsonSchemaExporter` to produce empty schemas (`{ }`). This is a [known .NET limitation](https://github.com/dotnet/runtime/issues/105769) — types with custom converters cannot describe their schema to the exporter. The converter still works for deserialization — only the schema is affected.
 >
 > **MVC controllers** use separate JSON options. To configure the resolver for MVC:
 > ```csharp
@@ -205,7 +205,7 @@ NSwag, Kiota, and other generators produce a clean, idiomatic client.
 >     o.JsonSerializerOptions.TypeInfoResolverChain.Insert(0, PatchlyJsonTypeInfoResolver.Default));
 > ```
 >
-> **Buffered-path types** (init-only properties or `[JsonConstructor]`) produce empty OpenAPI schemas. This is a known limitation — these types use a converter-based resolver path that cannot be introspected by `JsonSchemaExporter`.
+> **Buffered-path types** (init-only properties or `[JsonConstructor]`) produce empty OpenAPI schemas. This is the same [.NET limitation](https://github.com/dotnet/runtime/issues/105769) — these types use a converter-based resolver path that cannot be introspected by `JsonSchemaExporter`.
 >
 > **Do not** add Patchly converters directly to `options.Converters` when the resolver is active — this would override the resolver and produce empty schemas.
 
