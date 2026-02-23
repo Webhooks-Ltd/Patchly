@@ -516,6 +516,8 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
         sb.AppendLine("{");
         sb.AppendLine("    public static PatchlyJsonTypeInfoResolver Default { get; } = new();");
         sb.AppendLine();
+        sb.AppendLine("    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage(\"AOT\", \"IL3050\", Justification = \"All types are statically known at source-generation time.\")]");
+        sb.AppendLine("    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage(\"Trimming\", \"IL2026\", Justification = \"All types are statically known at source-generation time.\")]");
         sb.AppendLine("    public System.Text.Json.Serialization.Metadata.JsonTypeInfo? GetTypeInfo(System.Type type, System.Text.Json.JsonSerializerOptions options)");
         sb.AppendLine("    {");
 
