@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="icon.svg" alt="Patchly logo" width="128" />
+</p>
+
 # 🩹 Patchly
 
 [![CI](https://github.com/Webhooks-Ltd/Patchly/actions/workflows/ci.yml/badge.svg)](https://github.com/Webhooks-Ltd/Patchly/actions/workflows/ci.yml)
