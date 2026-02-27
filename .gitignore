@@ -50,7 +50,7 @@ Thumbs.db
 desktop.ini
 
 ## Claude Code
-.claude/settings.local.json
+.claude/
 
 ## Misc
 *.log
