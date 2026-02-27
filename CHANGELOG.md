@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-02-27
+
+### Fixed
+
+- README rendering on NuGet (replaced HTML image tag with markdown)
+- Icon padding trimmed for cleaner display
+
 ## [0.3.2] - 2026-02-27
 
 ### Added
