@@ -7,9 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-02-27
+
 ### Added
 
 - Project logo and NuGet package icon
+- XML documentation file in NuGet package for IntelliSense support
 
 ## [0.3.1] - 2026-02-23
 
