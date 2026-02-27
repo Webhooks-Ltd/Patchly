@@ -1,4 +1,4 @@
-![Patchly logo](icon.png)
+![Patchly logo](https://media.githubusercontent.com/media/Webhooks-Ltd/Patchly/refs/heads/main/icon.png)
 
 # 🩹 Patchly
 
