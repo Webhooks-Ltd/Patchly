@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="icon.svg" alt="Patchly logo" width="128" />
-</p>
+![Patchly logo](icon.png)
 
 # 🩹 Patchly
 
