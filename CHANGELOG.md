@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Deterministic semantics mode for `[PatchDocument]` via `SemanticsMode = PatchSemanticsMode.DeterministicV1`
+- `PatchValueState` (`Omitted`, `Null`, `Value`) and `IPatchDocument.GetState(string)`
+- Generated `State` accessor for deterministic patch documents
+- Diagnostic `PATCH030` warning for non-nullable collection properties in deterministic mode
+
+### Changed
+
+- `PATCH010` warning message now clarifies value-only ambiguity in state semantics
+- README expanded with deterministic semantics examples and collection replace behavior
+
 ## [0.3.3] - 2026-02-27
 
 ### Fixed

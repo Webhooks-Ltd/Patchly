@@ -55,7 +55,15 @@ internal static class Diagnostics
     public static readonly DiagnosticDescriptor NonNullableValueType = new(
         "PATCH010",
         "Non-nullable value type property on [PatchDocument]",
-        "Property '{0}' on '{1}' is a non-nullable value type; it cannot distinguish between 'not provided' and 'default value'",
+        "Property '{0}' on '{1}' is a non-nullable value type; check state/Provided semantics because it cannot distinguish between 'not provided' and 'default value' from value alone",
+        "Patchly",
+        DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor NonNullableCollectionTypeDeterministic = new(
+        "PATCH030",
+        "Non-nullable collection property in deterministic mode",
+        "Property '{0}' on '{1}' is a non-nullable collection; nullable collection types are recommended in deterministic mode to model clear-vs-replace semantics",
         "Patchly",
         DiagnosticSeverity.Warning,
         isEnabledByDefault: true);

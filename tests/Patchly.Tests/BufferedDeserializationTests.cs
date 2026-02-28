@@ -178,4 +178,17 @@ public class BufferedDeserializationTests
         patch.Name.Should().Be("Alice");
         patch.WasProvided("Name").Should().BeTrue();
     }
+
+    [Fact]
+    public void DeterministicBufferedPath_TracksStateParity()
+    {
+        var omitted = JsonSerializer.Deserialize<DeterministicInitOnlyPatch>("""{}""", CamelCase)!;
+        var withNull = JsonSerializer.Deserialize<DeterministicInitOnlyPatch>("""{"firstName":null}""", CamelCase)!;
+        var withValue = JsonSerializer.Deserialize<DeterministicInitOnlyPatch>("""{"firstName":"Alice","age":30}""", CamelCase)!;
+
+        omitted.State.FirstName.Should().Be(PatchValueState.Omitted);
+        withNull.State.FirstName.Should().Be(PatchValueState.Null);
+        withValue.State.FirstName.Should().Be(PatchValueState.Value);
+        withValue.State.Age.Should().Be(PatchValueState.Value);
+    }
 }

@@ -116,6 +116,8 @@ Patchly source-generates three things for each `[PatchDocument]` class:
 2. ✅ A **`Provided` accessor** with per-property booleans (`patch.Provided.FirstName`)
 3. 🔗 A **`WasProvided(string)`** method for generic/dynamic scenarios
 
+When deterministic mode is enabled, Patchly also generates a **`State` accessor** and **`GetState(string)`** for explicit tri-state semantics (`Omitted`, `Null`, `Value`).
+
 ### 📡 On the Wire
 
 The client sends plain JSON — only the fields it wants to change:
@@ -280,6 +282,33 @@ patch.Address.Provided.City  // ❌ false — city was not sent
 patch.Provided.FirstName     // ❌ false — not sent at all
 ```
 
+## 🎯 Deterministic Semantics Mode
+
+Patchly's default behavior already lets you distinguish omitted fields using `Provided`/`WasProvided`. Deterministic mode adds an explicit tri-state API for clearer handler logic.
+
+```csharp
+[PatchDocument(SemanticsMode = PatchSemanticsMode.DeterministicV1)]
+public partial class CustomerPatch
+{
+    public string? FirstName { get; set; }
+    public List<string>? Tags { get; set; }
+}
+```
+
+```csharp
+switch (patch.State.FirstName)
+{
+    case PatchValueState.Omitted: break;               // leave unchanged
+    case PatchValueState.Null: customer.FirstName = null; break; // clear
+    case PatchValueState.Value: customer.FirstName = patch.FirstName; break; // set
+}
+```
+
+Deterministic V1 collection behavior is **replace-based**:
+- Omitted collection field -> no change
+- `null` -> clear
+- `[]` or non-empty array -> replace with payload value
+
 ## 🗺️ Patch Mapping
 
 For projects with many patch endpoints, Patchly provides a structured mapping pattern that centralizes patch-to-entity logic with DI integration.
@@ -370,6 +399,7 @@ The generated converter also works with all `JsonSerializerOptions` configuratio
 All generated patch documents implement `IPatchDocument`, which exposes:
 
 - `bool WasProvided(string propertyName)` — check by C# property name (case-insensitive)
+- `PatchValueState GetState(string propertyName)` — tri-state semantics (`Omitted`, `Null`, `Value`)
 - `IReadOnlySet<string> ProvidedProperties` — the set of C# property names that were present in the JSON
 
 Use `IPatchDocument` for generic constraints:
@@ -411,6 +441,7 @@ The source generator catches problems at compile time so you don't have to debug
 | PATCH011 | Patch document has no public properties to track |
 | PATCH012 | Read-only property will be excluded from deserialization and tracking |
 | PATCH017 | `[JsonConstructor]` parameter does not match any tracked property |
+| PATCH030 | Non-nullable collection property in deterministic mode can make clear-vs-replace intent ambiguous |
 
 ### Info
 

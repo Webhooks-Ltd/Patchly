@@ -74,6 +74,7 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
         var syntax = ctx.TargetNode;
         var location = syntax.GetLocation();
         var name = symbol.Name;
+        var isDeterministicSemantics = IsDeterministicSemantics(ctx);
 
         try
         {
@@ -184,6 +185,12 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
                     diagnostics.Add(DiagnosticInfo.Create(Diagnostics.NonNullableValueType, prop.Locations.FirstOrDefault() ?? location, prop.Name, name));
                 }
 
+                var isNonNullableCollectionType = IsNonNullableCollectionType(prop);
+                if (isDeterministicSemantics && isNonNullableCollectionType)
+                {
+                    diagnostics.Add(DiagnosticInfo.Create(Diagnostics.NonNullableCollectionTypeDeterministic, prop.Locations.FirstOrDefault() ?? location, prop.Name, name));
+                }
+
                 var jsonPropertyName = GetJsonPropertyName(prop);
 
                 var hasJsonNumberHandling = false;
@@ -208,6 +215,7 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
                     JsonPropertyName: jsonPropertyName,
                     IsNullableValueType: prop.Type.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T || prop.Type.NullableAnnotation == NullableAnnotation.Annotated && prop.Type.IsValueType,
                     IsNonNullableValueType: isNonNullableValueType,
+                    IsNonNullableCollectionType: isNonNullableCollectionType,
                     HasJsonIgnore: hasJsonIgnore,
                     HasJsonInclude: hasJsonInclude,
                     HasJsonNumberHandling: hasJsonNumberHandling,
@@ -372,6 +380,7 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
                 FullyQualifiedName: fullyQualifiedName,
                 Namespace: ns,
                 Accessibility: accessibility,
+                IsDeterministicSemantics: isDeterministicSemantics,
                 HasRequiredMembers: hasRequiredMembers,
                 UseBufferedDeserialization: useBuffered,
                 ConstructorParameters: constructorParameters,
@@ -403,6 +412,52 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
             }
         }
         return !hasInstanceCtor;
+    }
+
+    private static bool IsDeterministicSemantics(GeneratorAttributeSyntaxContext ctx)
+    {
+        foreach (var attr in ctx.Attributes)
+        {
+            foreach (var namedArg in attr.NamedArguments)
+            {
+                if (!string.Equals(namedArg.Key, "SemanticsMode", StringComparison.Ordinal))
+                    continue;
+
+                if (namedArg.Value.Value is int enumValue)
+                    return enumValue == 1;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsNonNullableCollectionType(IPropertySymbol prop)
+    {
+        if (prop.Type is IArrayTypeSymbol)
+            return true;
+
+        if (prop.Type.SpecialType == SpecialType.System_String)
+            return false;
+
+        if (!prop.Type.IsReferenceType)
+            return false;
+
+        if (prop.Type.NullableAnnotation == NullableAnnotation.Annotated)
+            return false;
+
+        if (prop.Type is not INamedTypeSymbol namedType)
+            return false;
+
+        foreach (var iface in namedType.AllInterfaces)
+        {
+            if (iface.ContainingNamespace.ToDisplayString() == "System.Collections" && iface.Name == "IEnumerable")
+                return true;
+
+            if (iface.ContainingNamespace.ToDisplayString() == "System.Collections.Generic" && iface.Name == "IEnumerable")
+                return true;
+        }
+
+        return false;
     }
 
     private static bool HasAttribute(IPropertySymbol prop, string fullName)
@@ -481,6 +536,9 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
         sb.AppendLine("    public bool WasProvided(string propertyName) => _providedProperties.Contains(propertyName);");
         sb.AppendLine();
 
+        GenerateGetStateMethod(sb, model.ClassName, tracked);
+        sb.AppendLine();
+
         sb.AppendLine("    [System.Text.Json.Serialization.JsonIgnore]");
         sb.AppendLine("    public System.Collections.Generic.IReadOnlySet<string> ProvidedProperties => _providedProperties;");
         sb.AppendLine();
@@ -494,6 +552,12 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
 
         GenerateProvidedSet(sb, model.ClassName, tracked);
         sb.AppendLine();
+
+        if (model.IsDeterministicSemantics)
+        {
+            GenerateStateSet(sb, model.ClassName, tracked);
+            sb.AppendLine();
+        }
 
         GenerateJsonConverter(sb, model, tracked);
 
@@ -631,6 +695,48 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
         {
             sb.AppendLine($"        /// <summary>Returns <c>true</c> if <see cref=\"{className}.{prop.PropertyName}\"/> was present in the JSON payload.</summary>");
             sb.AppendLine($"        public bool {prop.PropertyName} => _set?.Contains(nameof({className}.{prop.PropertyName})) ?? false;");
+        }
+
+        sb.AppendLine("    }");
+    }
+
+    private static void GenerateGetStateMethod(StringBuilder sb, string className, List<PatchPropertyModel> tracked)
+    {
+        sb.AppendLine("    public Patchly.PatchValueState GetState(string propertyName)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        if (!_providedProperties.Contains(propertyName))");
+        sb.AppendLine("            return Patchly.PatchValueState.Omitted;");
+        sb.AppendLine();
+
+        foreach (var prop in tracked)
+        {
+            sb.AppendLine($"        if (string.Equals(propertyName, nameof({className}.{prop.PropertyName}), System.StringComparison.OrdinalIgnoreCase))");
+            if (prop.IsNonNullableValueType)
+                sb.AppendLine("            return Patchly.PatchValueState.Value;");
+            else
+                sb.AppendLine($"            return {prop.PropertyName} is null ? Patchly.PatchValueState.Null : Patchly.PatchValueState.Value;");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("        return Patchly.PatchValueState.Omitted;");
+        sb.AppendLine("    }");
+    }
+
+    private static void GenerateStateSet(StringBuilder sb, string className, List<PatchPropertyModel> tracked)
+    {
+        sb.AppendLine("    [System.Text.Json.Serialization.JsonIgnore]");
+        sb.AppendLine("    public StateSet State => new StateSet(this);");
+        sb.AppendLine();
+        sb.AppendLine("    public readonly struct StateSet");
+        sb.AppendLine("    {");
+        sb.AppendLine($"        private readonly {className} _owner;");
+        sb.AppendLine();
+        sb.AppendLine($"        internal StateSet({className} owner) => _owner = owner;");
+        sb.AppendLine();
+
+        foreach (var prop in tracked)
+        {
+            sb.AppendLine($"        public Patchly.PatchValueState {prop.PropertyName} => _owner.GetState(nameof({className}.{prop.PropertyName}));");
         }
 
         sb.AppendLine("    }");

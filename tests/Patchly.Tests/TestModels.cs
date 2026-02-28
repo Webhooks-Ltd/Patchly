@@ -64,11 +64,35 @@ public partial class AddressPatch
     public string? City { get; set; }
 }
 
+[PatchDocument(SemanticsMode = PatchSemanticsMode.DeterministicV1)]
+public partial class DeterministicAddressPatch
+{
+    public string? Line1 { get; set; }
+    public string? City { get; set; }
+}
+
 [PatchDocument]
 public partial class NestedPatchDocument
 {
     public string? FirstName { get; set; }
     public AddressPatch? Address { get; set; }
+}
+
+[PatchDocument(SemanticsMode = PatchSemanticsMode.DeterministicV1)]
+public partial class DeterministicPatchDocument
+{
+    public string? FirstName { get; set; }
+    public string? LastName { get; set; }
+    public int? Age { get; set; }
+    public DeterministicAddressPatch? Address { get; set; }
+    public List<string>? Tags { get; set; }
+}
+
+[PatchDocument(SemanticsMode = PatchSemanticsMode.DeterministicV1)]
+public partial class DeterministicInitOnlyPatch
+{
+    public string? FirstName { get; init; }
+    public int? Age { get; init; }
 }
 
 [PatchDocument]

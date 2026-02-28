@@ -6,6 +6,7 @@ internal sealed record PatchPropertyModel(
     string? JsonPropertyName,
     bool IsNullableValueType,
     bool IsNonNullableValueType,
+    bool IsNonNullableCollectionType,
     bool HasJsonIgnore,
     bool HasJsonInclude,
     bool HasJsonNumberHandling,

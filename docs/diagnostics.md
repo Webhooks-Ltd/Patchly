@@ -332,7 +332,7 @@ Warnings indicate potential issues but don't prevent code generation. The genera
 
 ### PATCH010 — Non-nullable value type property
 
-**Message:** `Property '{0}' on '{1}' is a non-nullable value type; it cannot distinguish between 'not provided' and 'default value'`
+**Message:** `Property '{0}' on '{1}' is a non-nullable value type; check state/Provided semantics because it cannot distinguish between 'not provided' and 'default value' from value alone`
 
 **Rationale:** Patchly's core purpose is distinguishing "not provided" from "provided, even if null." For non-nullable value types like `int`, the default value is `0`. If the client doesn't send the property, the value is `0`. If the client sends `0`, the value is also `0`. The `Provided` accessor still works correctly — `patch.Provided.Count` tells you whether the property was in the JSON — but the property value alone is ambiguous.
 
@@ -436,6 +436,34 @@ public partial class CustomerPatch
 ```
 
 **Fix:** Either add a matching property or remove the unmatched parameter.
+
+---
+
+### PATCH030 — Non-nullable collection property in deterministic mode
+
+**Message:** `Property '{0}' on '{1}' is a non-nullable collection; nullable collection types are recommended in deterministic mode to model clear-vs-replace semantics`
+
+**Rationale:** In deterministic mode, collections use explicit states: omitted (no-op), null (clear), and value (replace). A non-nullable collection shape makes clear-vs-replace intent less explicit and easier to misuse in handler code.
+
+**Triggers:**
+
+```csharp
+[PatchDocument(SemanticsMode = PatchSemanticsMode.DeterministicV1)]
+public partial class CustomerPatch
+{
+    public List<string> Tags { get; set; } = new();
+}
+```
+
+**Fix:** Use a nullable collection type.
+
+```csharp
+[PatchDocument(SemanticsMode = PatchSemanticsMode.DeterministicV1)]
+public partial class CustomerPatch
+{
+    public List<string>? Tags { get; set; }
+}
+```
 
 ---
 

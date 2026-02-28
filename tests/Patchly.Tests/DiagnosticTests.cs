@@ -169,6 +169,41 @@ public class DiagnosticTests
     }
 
     [Fact]
+    public void PATCH030_DeterministicMode_NonNullableCollection()
+    {
+        const string source = """
+            using Patchly;
+            using System.Collections.Generic;
+
+            [PatchDocument(SemanticsMode = PatchSemanticsMode.DeterministicV1)]
+            public partial class CustomerPatch
+            {
+                public List<string> Tags { get; set; } = new();
+            }
+            """;
+
+        AssertDiagnostic(source, "PATCH030", DiagnosticSeverity.Warning);
+    }
+
+    [Fact]
+    public void PATCH030_LegacyMode_NoWarning()
+    {
+        const string source = """
+            using Patchly;
+            using System.Collections.Generic;
+
+            [PatchDocument]
+            public partial class CustomerPatch
+            {
+                public List<string> Tags { get; set; } = new();
+            }
+            """;
+
+        var diagnostics = GetDiagnostics(source);
+        diagnostics.Where(d => d.Id == "PATCH030").Should().BeEmpty();
+    }
+
+    [Fact]
     public void PATCH011_NoPublicProperties()
     {
         const string source = """

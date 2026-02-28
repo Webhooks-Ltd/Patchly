@@ -98,6 +98,75 @@ public class SerializationTests
     }
 
     [Fact]
+    public void DeterministicState_OmittedNullValue()
+    {
+        var omitted = JsonSerializer.Deserialize<DeterministicPatchDocument>("""{}""", CamelCase)!;
+        var withNull = JsonSerializer.Deserialize<DeterministicPatchDocument>("""{"firstName":null}""", CamelCase)!;
+        var withValue = JsonSerializer.Deserialize<DeterministicPatchDocument>("""{"firstName":"Alice"}""", CamelCase)!;
+
+        omitted.State.FirstName.Should().Be(PatchValueState.Omitted);
+        withNull.State.FirstName.Should().Be(PatchValueState.Null);
+        withValue.State.FirstName.Should().Be(PatchValueState.Value);
+    }
+
+    [Fact]
+    public void DeterministicGetState_CaseInsensitiveAndUnknown()
+    {
+        var patch = JsonSerializer.Deserialize<DeterministicPatchDocument>("""{"firstName":"Alice"}""", CamelCase)!;
+
+        patch.GetState("firstname").Should().Be(PatchValueState.Value);
+        patch.GetState("FIRSTNAME").Should().Be(PatchValueState.Value);
+        patch.GetState("FirstName").Should().Be(PatchValueState.Value);
+        patch.GetState("DoesNotExist").Should().Be(PatchValueState.Omitted);
+    }
+
+    [Fact]
+    public void DeterministicNestedPatchDocument_TracksIndependently()
+    {
+        var patch = JsonSerializer.Deserialize<DeterministicPatchDocument>("""{"address":{"city":"Seattle"}}""", CamelCase)!;
+
+        patch.State.Address.Should().Be(PatchValueState.Value);
+        patch.Address.Should().NotBeNull();
+        patch.Address!.State.City.Should().Be(PatchValueState.Value);
+        patch.Address.State.Line1.Should().Be(PatchValueState.Omitted);
+    }
+
+    [Fact]
+    public void DeterministicNestedPatchDocument_NullAndOmitted()
+    {
+        var omitted = JsonSerializer.Deserialize<DeterministicPatchDocument>("""{}""", CamelCase)!;
+        var withNull = JsonSerializer.Deserialize<DeterministicPatchDocument>("""{"address":null}""", CamelCase)!;
+
+        omitted.State.Address.Should().Be(PatchValueState.Omitted);
+        withNull.State.Address.Should().Be(PatchValueState.Null);
+    }
+
+    [Fact]
+    public void DeterministicCollectionState_OmittedNullEmptyAndNonEmpty()
+    {
+        var omitted = JsonSerializer.Deserialize<DeterministicPatchDocument>("""{}""", CamelCase)!;
+        var withNull = JsonSerializer.Deserialize<DeterministicPatchDocument>("""{"tags":null}""", CamelCase)!;
+        var withEmpty = JsonSerializer.Deserialize<DeterministicPatchDocument>("""{"tags":[]}""", CamelCase)!;
+        var withValues = JsonSerializer.Deserialize<DeterministicPatchDocument>("""{"tags":["vip","priority"]}""", CamelCase)!;
+
+        omitted.State.Tags.Should().Be(PatchValueState.Omitted);
+        withNull.State.Tags.Should().Be(PatchValueState.Null);
+        withEmpty.State.Tags.Should().Be(PatchValueState.Value);
+        withEmpty.Tags.Should().NotBeNull().And.BeEmpty();
+        withValues.State.Tags.Should().Be(PatchValueState.Value);
+        withValues.Tags.Should().Equal("vip", "priority");
+    }
+
+    [Fact]
+    public void DeterministicDuplicateProperty_UsesLastValueForState()
+    {
+        var patch = JsonSerializer.Deserialize<DeterministicPatchDocument>("""{"firstName":"Alice","firstName":null}""", CamelCase)!;
+
+        patch.FirstName.Should().BeNull();
+        patch.State.FirstName.Should().Be(PatchValueState.Null);
+    }
+
+    [Fact]
     public void FreshInstance_EmptyTracking()
     {
         var patch = new CustomerPatch();
@@ -330,6 +399,17 @@ public class SerializationTests
         json.Should().Contain("firstName");
         json.Should().NotContain("lastName");
         json.Should().NotContain("age");
+    }
+
+    [Fact]
+    public void DeterministicSerialization_ExcludesStateInfrastructure()
+    {
+        var patch = JsonSerializer.Deserialize<DeterministicPatchDocument>("""{"firstName":"Alice"}""", CamelCase)!;
+        var json = JsonSerializer.Serialize(patch, CamelCase);
+
+        json.Should().NotContain("state");
+        json.Should().NotContain("provided");
+        json.Should().Contain("firstName");
     }
 
     [Fact]

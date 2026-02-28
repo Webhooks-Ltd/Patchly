@@ -5,6 +5,7 @@ internal sealed record PatchClassModel(
     string FullyQualifiedName,
     string Namespace,
     string Accessibility,
+    bool IsDeterministicSemantics,
     bool HasRequiredMembers,
     bool UseBufferedDeserialization,
     EquatableArray<ConstructorParameterModel>? ConstructorParameters,
