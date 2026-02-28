@@ -1,7 +1,7 @@
 # json-constructor-support Specification
 
 ## Purpose
-TBD - created by archiving change buffered-deserialization. Update Purpose after archive.
+Define buffered-path deserialization requirements for `[JsonConstructor]` support, including constructor parameter matching rules and compile-time diagnostics.
 ## Requirements
 ### Requirement: JsonConstructor Support
 
@@ -116,4 +116,3 @@ The source generator SHALL allow classes that have a `[JsonConstructor]`-annotat
 - **WHEN** a `[PatchDocument]` partial class has only a `[JsonConstructor]` constructor `(string? name)` and no parameterless constructor
 - **THEN** no PATCH006 diagnostic is emitted
 - **AND** source generation proceeds using the buffered path with constructor invocation
-

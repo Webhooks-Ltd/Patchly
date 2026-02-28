@@ -1,7 +1,7 @@
 # init-property-support Specification
 
 ## Purpose
-TBD - created by archiving change buffered-deserialization. Update Purpose after archive.
+Define buffered-path deserialization requirements for `init`-only properties so property tracking remains accurate when setters are unavailable.
 ## Requirements
 ### Requirement: Init-Only Property Support
 
@@ -99,4 +99,3 @@ The source generator SHALL emit an informational diagnostic when the buffered de
 
 - **WHEN** a `[PatchDocument]` partial class uses the streaming path
 - **THEN** no buffered path diagnostic is emitted
-

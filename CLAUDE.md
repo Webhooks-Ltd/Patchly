@@ -10,6 +10,9 @@ Source-generated partial update (HTTP PATCH) DTOs for ASP.NET Core.
 - Read `openspec/project.md` for full project context, architecture, and conventions
 - Read `openspec/specs/` for detailed requirements and scenarios before implementing
 - Follow `docs/packaging-policy.md` for all NuGet packaging, dependency, and versioning decisions
+- Use `docs/backlog/` for idea backlog management (`index.md`, `ideas/*.md`, and template)
+- Do not create OpenSpec change stubs just to park ideas; create OpenSpec changes only when an idea is ready for specification/implementation
+- When adding or changing diagnostics, update `docs/diagnostics.md` and keep the diagnostics section in `README.md` in sync
 - Use `openspec status` to check current change progress
 
 ## Commit Convention

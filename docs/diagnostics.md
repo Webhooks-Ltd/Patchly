@@ -324,6 +324,61 @@ public class CustomerPatchMap : PatchMap<CustomerPatch, Customer>
 
 ---
 
+### PATCH021 — Constructor parameter type does not match property type
+
+**Message:** `Constructor parameter '{0}' on '{1}' has type '{2}' but matched property has type '{3}'`
+
+**Rationale:** The generator matches `[JsonConstructor]` parameters to properties by name. When a match is found, the types must also match — the generator passes the buffered property value directly as the constructor argument.
+
+**Triggers:**
+
+```csharp
+[PatchDocument]
+public partial class CustomerPatch
+{
+    [JsonConstructor]
+    public CustomerPatch(int? name) { }
+    public string? Name { get; set; }
+}
+```
+
+**Fix:** Ensure the constructor parameter type matches the property type.
+
+---
+
+### PATCH022 — `[JsonConstructor]` missing `[SetsRequiredMembers]`
+
+**Message:** `[JsonConstructor] on '{0}' must have [SetsRequiredMembers] because the class has required members`
+
+**Rationale:** When a class has `required` members and a `[JsonConstructor]` constructor, the generated code constructs the instance via the `[JsonConstructor]` constructor. Without `[SetsRequiredMembers]`, the C# compiler would require `required` members to be set in an object initializer, but the constructor invocation path doesn't use one.
+
+**Triggers:**
+
+```csharp
+[PatchDocument]
+public partial class CustomerPatch
+{
+    [JsonConstructor]
+    public CustomerPatch(string? name) { Name = name; }
+    public required string? Name { get; set; }
+}
+```
+
+**Fix:** Add `[SetsRequiredMembers]` to the `[JsonConstructor]` constructor.
+
+```csharp
+[PatchDocument]
+public partial class CustomerPatch
+{
+    [SetsRequiredMembers]
+    [JsonConstructor]
+    public CustomerPatch(string? name) { Name = name; }
+    public required string? Name { get; set; }
+}
+```
+
+---
+
 ## Warnings
 
 Warnings indicate potential issues but don't prevent code generation. The generator still produces output, but you should review these to avoid runtime surprises.
@@ -490,61 +545,6 @@ Informational diagnostics provide visibility into generator decisions. They don'
 **Rationale:** The generator has two codegen paths for `JsonConverter.Read()`: a streaming path (construct first, then set properties) and a buffered path (read all properties into local variables, then construct). The buffered path is selected when the class has `init`-only properties or a `[JsonConstructor]` constructor. This info diagnostic makes the selection visible.
 
 **Triggers:** Any `[PatchDocument]` class with `init`-only properties or a `[JsonConstructor]` constructor.
-
----
-
-### PATCH021 — Constructor parameter type does not match property type
-
-**Message:** `Constructor parameter '{0}' on '{1}' has type '{2}' but matched property has type '{3}'`
-
-**Rationale:** The generator matches `[JsonConstructor]` parameters to properties by name. When a match is found, the types must also match — the generator passes the buffered property value directly as the constructor argument.
-
-**Triggers:**
-
-```csharp
-[PatchDocument]
-public partial class CustomerPatch
-{
-    [JsonConstructor]
-    public CustomerPatch(int? name) { }
-    public string? Name { get; set; }
-}
-```
-
-**Fix:** Ensure the constructor parameter type matches the property type.
-
----
-
-### PATCH022 — `[JsonConstructor]` missing `[SetsRequiredMembers]`
-
-**Message:** `[JsonConstructor] on '{0}' must have [SetsRequiredMembers] because the class has required members`
-
-**Rationale:** When a class has `required` members and a `[JsonConstructor]` constructor, the generated code constructs the instance via the `[JsonConstructor]` constructor. Without `[SetsRequiredMembers]`, the C# compiler would require `required` members to be set in an object initializer, but the constructor invocation path doesn't use one.
-
-**Triggers:**
-
-```csharp
-[PatchDocument]
-public partial class CustomerPatch
-{
-    [JsonConstructor]
-    public CustomerPatch(string? name) { Name = name; }
-    public required string? Name { get; set; }
-}
-```
-
-**Fix:** Add `[SetsRequiredMembers]` to the `[JsonConstructor]` constructor.
-
-```csharp
-[PatchDocument]
-public partial class CustomerPatch
-{
-    [SetsRequiredMembers]
-    [JsonConstructor]
-    public CustomerPatch(string? name) { Name = name; }
-    public required string? Name { get; set; }
-}
-```
 
 ---
 

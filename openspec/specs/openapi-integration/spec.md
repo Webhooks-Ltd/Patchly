@@ -1,7 +1,7 @@
 # openapi-integration Specification
 
 ## Purpose
-TBD - created by archiving change openapi-schema-fix. Update Purpose after archive.
+Define ASP.NET Core integration requirements so `AddPatchly()` configures System.Text.Json type info resolution for correct OpenAPI schema generation and runtime behavior.
 ## Requirements
 ### Requirement: AddPatchly Service Registration
 
