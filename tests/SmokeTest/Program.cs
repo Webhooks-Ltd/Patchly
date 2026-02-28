@@ -17,6 +17,24 @@ var patch = JsonSerializer.Deserialize(json, (JsonTypeInfo<CustomerPatch>)option
 if (!patch!.Provided.Name || !patch.Provided.Age || patch.Provided.Email)
     throw new Exception("Tracking mismatch");
 
+var deterministicJson = """{"Name":"Alice","Age":null}""";
+var deterministicPatch = JsonSerializer.Deserialize(deterministicJson, (JsonTypeInfo<DeterministicCustomerPatch>)options.GetTypeInfo(typeof(DeterministicCustomerPatch)));
+
+if (deterministicPatch is null)
+    throw new Exception("Deterministic patch deserialization failed");
+
+if (deterministicPatch.State.Name != PatchValueState.Value)
+    throw new Exception($"Deterministic state mismatch for Name: {deterministicPatch.State.Name}");
+
+if (deterministicPatch.State.Age != PatchValueState.Null)
+    throw new Exception($"Deterministic state mismatch for Age: {deterministicPatch.State.Age}");
+
+if (deterministicPatch.GetState(nameof(DeterministicCustomerPatch.Email)) != PatchValueState.Omitted)
+    throw new Exception("Deterministic state mismatch for omitted Email");
+
+Console.WriteLine($"Deterministic state: Name={deterministicPatch.State.Name}, Age={deterministicPatch.State.Age}, Email={deterministicPatch.GetState(nameof(DeterministicCustomerPatch.Email))}");
+Console.WriteLine();
+
 Console.WriteLine("--- Patchly Smoke Test ---");
 Console.WriteLine();
 Console.WriteLine($"Input: {json}");
@@ -53,6 +71,14 @@ public partial class CustomerPatch
     public string? Email { get; set; }
 }
 
+[PatchDocument(SemanticsMode = PatchSemanticsMode.DeterministicV1)]
+public partial class DeterministicCustomerPatch
+{
+    public string? Name { get; set; }
+    public int? Age { get; set; }
+    public string? Email { get; set; }
+}
+
 public class Customer
 {
     public string? Name { get; set; }
@@ -69,4 +95,5 @@ public class CustomerPatchMap : PatchMap<CustomerPatch, Customer>
 }
 
 [JsonSerializable(typeof(CustomerPatch))]
+[JsonSerializable(typeof(DeterministicCustomerPatch))]
 internal partial class SmokeTestJsonContext : JsonSerializerContext;
