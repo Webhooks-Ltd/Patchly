@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Source Link debugging now works correctly for CI-built packages (deterministic build paths)
+
 ### Added
 
 - Deterministic semantics mode for `[PatchDocument]` via `SemanticsMode = PatchSemanticsMode.DeterministicV1`
