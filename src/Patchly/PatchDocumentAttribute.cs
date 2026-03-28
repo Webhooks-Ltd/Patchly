@@ -11,4 +11,9 @@ public sealed class PatchDocumentAttribute : Attribute
     /// Controls semantics generated for this patch document.
     /// </summary>
     public PatchSemanticsMode SemanticsMode { get; set; } = PatchSemanticsMode.Legacy;
+
+    /// <summary>
+    /// Controls how unrecognized JSON properties are handled during deserialization.
+    /// </summary>
+    public UnknownPropertyHandling UnknownPropertyHandling { get; set; } = UnknownPropertyHandling.Ignore;
 }

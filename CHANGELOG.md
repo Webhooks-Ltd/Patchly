@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-03-28
+
 ### Fixed
 
 - Source Link debugging now works correctly for CI-built packages (deterministic build paths)
@@ -17,11 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `PatchValueState` (`Omitted`, `Null`, `Value`) and `IPatchDocument.GetState(string)`
 - Generated `State` accessor for deterministic patch documents
 - Diagnostic `PATCH030` warning for non-nullable collection properties in deterministic mode
+- `UnknownPropertyHandling` (`Ignore`, `Reject`) on `[PatchDocument]` for opt-in rejection of unrecognized JSON properties
 
 ### Changed
 
 - `PATCH010` warning message now clarifies value-only ambiguity in state semantics
 - README expanded with deterministic semantics examples and collection replace behavior
+- Generated converters and the .NET 8+ resolver now honor per-type unknown-property handling consistently
 
 ## [0.3.3] - 2026-02-27
 

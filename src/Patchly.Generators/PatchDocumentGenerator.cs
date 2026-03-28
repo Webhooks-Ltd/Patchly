@@ -75,6 +75,7 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
         var location = syntax.GetLocation();
         var name = symbol.Name;
         var isDeterministicSemantics = IsDeterministicSemantics(ctx);
+        var rejectUnknownProperties = RejectUnknownProperties(ctx);
 
         try
         {
@@ -381,6 +382,7 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
                 Namespace: ns,
                 Accessibility: accessibility,
                 IsDeterministicSemantics: isDeterministicSemantics,
+                RejectUnknownProperties: rejectUnknownProperties,
                 HasRequiredMembers: hasRequiredMembers,
                 UseBufferedDeserialization: useBuffered,
                 ConstructorParameters: constructorParameters,
@@ -421,6 +423,23 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
             foreach (var namedArg in attr.NamedArguments)
             {
                 if (!string.Equals(namedArg.Key, "SemanticsMode", StringComparison.Ordinal))
+                    continue;
+
+                if (namedArg.Value.Value is int enumValue)
+                    return enumValue == 1;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool RejectUnknownProperties(GeneratorAttributeSyntaxContext ctx)
+    {
+        foreach (var attr in ctx.Attributes)
+        {
+            foreach (var namedArg in attr.NamedArguments)
+            {
+                if (!string.Equals(namedArg.Key, "UnknownPropertyHandling", StringComparison.Ordinal))
                     continue;
 
                 if (namedArg.Value.Value is int enumValue)
@@ -600,6 +619,8 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
             else
             {
                 sb.AppendLine($"            var typeInfo = System.Text.Json.Serialization.Metadata.JsonTypeInfo.CreateJsonTypeInfo<{fqn}>(options);");
+                sb.AppendLine($"            typeInfo.UnmappedMemberHandling = {(model.RejectUnknownProperties ? "System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow" : "System.Text.Json.Serialization.JsonUnmappedMemberHandling.Skip")};");
+                sb.AppendLine();
 
                 if (model.HasRequiredMembers)
                     sb.AppendLine($"            typeInfo.CreateObject = static () => new {fqn}(false);");
@@ -843,12 +864,25 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
             sb.AppendLine($"            var result = new {className}(false);");
         else
             sb.AppendLine($"            var result = new {className}();");
+        if (model.RejectUnknownProperties)
+            sb.AppendLine("            System.Collections.Generic.List<string>? unknownProperties = null;");
         sb.AppendLine();
 
         sb.AppendLine("            while (reader.Read())");
         sb.AppendLine("            {");
         sb.AppendLine("                if (reader.TokenType == System.Text.Json.JsonTokenType.EndObject)");
-        sb.AppendLine("                    return result;");
+        if (model.RejectUnknownProperties)
+        {
+            sb.AppendLine("                {");
+            sb.AppendLine("                    if (unknownProperties is not null)");
+            sb.AppendLine($"                        throw new System.Text.Json.JsonException($\"Unknown JSON properties on {className}: '{{string.Join(\"', '\", unknownProperties)}}'\");");
+            sb.AppendLine("                    return result;");
+            sb.AppendLine("                }");
+        }
+        else
+        {
+            sb.AppendLine("                    return result;");
+        }
         sb.AppendLine();
         sb.AppendLine("                if (reader.TokenType != System.Text.Json.JsonTokenType.PropertyName)");
         sb.AppendLine("                    throw new System.Text.Json.JsonException($\"Expected PropertyName, got {reader.TokenType}\");");
@@ -877,6 +911,8 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
         sb.AppendLine("                if (!matched)");
         sb.AppendLine("                {");
         sb.AppendLine("                    reader.Read();");
+        if (model.RejectUnknownProperties)
+            sb.AppendLine("                    (unknownProperties ??= new System.Collections.Generic.List<string>()).Add(propertyName);");
         sb.AppendLine("                    reader.Skip();");
         sb.AppendLine("                }");
 
@@ -896,6 +932,8 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
             sb.AppendLine($"            {prop.TypeName} {localName} = default!;");
             sb.AppendLine($"            var {flagName} = false;");
         }
+        if (model.RejectUnknownProperties)
+            sb.AppendLine("            System.Collections.Generic.List<string>? unknownProperties = null;");
         sb.AppendLine();
 
         sb.AppendLine("            while (reader.Read())");
@@ -932,10 +970,19 @@ public sealed class PatchDocumentGenerator : IIncrementalGenerator
         sb.AppendLine("                if (!matched)");
         sb.AppendLine("                {");
         sb.AppendLine("                    reader.Read();");
+        if (model.RejectUnknownProperties)
+            sb.AppendLine("                    (unknownProperties ??= new System.Collections.Generic.List<string>()).Add(propertyName);");
         sb.AppendLine("                    reader.Skip();");
         sb.AppendLine("                }");
         sb.AppendLine("            }");
         sb.AppendLine();
+
+        if (model.RejectUnknownProperties)
+        {
+            sb.AppendLine("            if (unknownProperties is not null)");
+            sb.AppendLine($"                throw new System.Text.Json.JsonException($\"Unknown JSON properties on {className}: '{{string.Join(\"', '\", unknownProperties)}}'\");");
+            sb.AppendLine();
+        }
 
         if (model.ConstructorParameters != null)
         {

@@ -251,6 +251,40 @@ var body = new JsonObject
 };
 ```
 
+## 🚫 Unknown Property Handling
+
+By default, Patchly ignores unrecognized JSON properties.
+
+```csharp
+[PatchDocument]
+public partial class CustomerPatch
+{
+    public string? FirstName { get; set; }
+}
+```
+
+If you want strict contract enforcement, opt in per patch type:
+
+```csharp
+[PatchDocument(UnknownPropertyHandling = UnknownPropertyHandling.Reject)]
+public partial class CustomerPatch
+{
+    public string? FirstName { get; set; }
+}
+```
+
+Then payloads like:
+
+```json
+{ "firstName": "Mark", "fistName": "typo" }
+```
+
+fail during deserialization instead of silently succeeding.
+
+- Converter path: Patchly throws a `JsonException` listing the unknown JSON property names for that type.
+- Resolver path (`AddPatchly()` / .NET 8+ streaming types): Patchly sets `UnmappedMemberHandling` so strict and ignore behavior stay aligned even if the app configures a global unmapped-member policy.
+- Nested patch documents keep their own setting; strictness does not cascade automatically.
+
 ## 🏗️ Nested Patch Documents
 
 When a property's type is itself a `[PatchDocument]`, tracking works independently at each level:

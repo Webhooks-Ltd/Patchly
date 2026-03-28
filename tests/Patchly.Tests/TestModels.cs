@@ -11,6 +11,14 @@ public partial class CustomerPatch
     public int? Age { get; set; }
 }
 
+[PatchDocument(UnknownPropertyHandling = UnknownPropertyHandling.Reject)]
+public partial class StrictCustomerPatch
+{
+    public string? FirstName { get; set; }
+    public string? LastName { get; set; }
+    public int? Age { get; set; }
+}
+
 [PatchDocument]
 public partial class AllTypesPatch
 {
@@ -49,6 +57,14 @@ public partial class JsonPropertyNamePatch
     public string? LastName { get; set; }
 }
 
+[PatchDocument(UnknownPropertyHandling = UnknownPropertyHandling.Reject)]
+public partial class StrictJsonPropertyNamePatch
+{
+    [JsonPropertyName("first_name")]
+    public string? FirstName { get; set; }
+    public string? LastName { get; set; }
+}
+
 [PatchDocument]
 public partial class JsonIgnorePatch
 {
@@ -57,8 +73,23 @@ public partial class JsonIgnorePatch
     public string? InternalNote { get; set; }
 }
 
+[PatchDocument(UnknownPropertyHandling = UnknownPropertyHandling.Reject)]
+public partial class StrictJsonIgnorePatch
+{
+    public string? FirstName { get; set; }
+    [JsonIgnore]
+    public string? InternalNote { get; set; }
+}
+
 [PatchDocument]
 public partial class AddressPatch
+{
+    public string? Line1 { get; set; }
+    public string? City { get; set; }
+}
+
+[PatchDocument(UnknownPropertyHandling = UnknownPropertyHandling.Reject)]
+public partial class StrictAddressPatch
 {
     public string? Line1 { get; set; }
     public string? City { get; set; }
@@ -76,6 +107,27 @@ public partial class NestedPatchDocument
 {
     public string? FirstName { get; set; }
     public AddressPatch? Address { get; set; }
+}
+
+[PatchDocument(UnknownPropertyHandling = UnknownPropertyHandling.Reject)]
+public partial class StrictNestedPatchDocument
+{
+    public string? FirstName { get; set; }
+    public StrictAddressPatch? Address { get; set; }
+}
+
+[PatchDocument(UnknownPropertyHandling = UnknownPropertyHandling.Reject)]
+public partial class StrictParentIgnoreChildPatch
+{
+    public string? FirstName { get; set; }
+    public AddressPatch? Address { get; set; }
+}
+
+[PatchDocument]
+public partial class IgnoreParentStrictChildPatch
+{
+    public string? FirstName { get; set; }
+    public StrictAddressPatch? Address { get; set; }
 }
 
 [PatchDocument(SemanticsMode = PatchSemanticsMode.DeterministicV1)]
@@ -120,6 +172,13 @@ public partial class RequiredPatch
 
 [PatchDocument]
 public partial class InitOnlyPatch
+{
+    public string? FirstName { get; init; }
+    public string? LastName { get; init; }
+}
+
+[PatchDocument(UnknownPropertyHandling = UnknownPropertyHandling.Reject)]
+public partial class StrictInitOnlyPatch
 {
     public string? FirstName { get; init; }
     public string? LastName { get; init; }

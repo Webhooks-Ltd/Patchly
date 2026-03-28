@@ -228,26 +228,65 @@ The generated converter SHALL correctly deserialize and track a variety of prope
 - THEN `Metadata` is a dictionary with the expected entries
 - AND `WasProvided("Metadata")` returns true
 
-### Requirement: Unknown Properties Handling
+### Requirement: Unknown Property Handling
 
-The generated converter SHALL handle JSON properties that do not correspond to any C# property on the patch document by silently skipping them.
+The generated converter SHALL handle unrecognized JSON properties according to the `UnknownPropertyHandling` configured on the `[PatchDocument]` attribute. When set to `Ignore` (default), unknown properties are silently skipped. When set to `Reject`, the converter SHALL collect all unknown property names during iteration and throw a `JsonException` after the full object is read, listing every unrecognized property.
 
-#### Scenario: Unknown properties are silently ignored
+This applies to both the streaming and buffered converter codegen paths. The resolver path (.NET 8+) uses STJ's native `UnmappedMemberHandling` instead.
 
-- GIVEN a `[PatchDocument]` class with properties `FirstName`, `LastName`
-- AND JSON payload `{"firstName": "Alice", "middleName": "B", "lastName": "Smith"}`
-- WHEN deserialized
-- THEN `FirstName` is `"Alice"` and `LastName` is `"Smith"`
-- AND `WasProvided("FirstName")` and `WasProvided("LastName")` return true
-- AND no exception is thrown for `middleName`
-- AND `WasProvided("MiddleName")` returns false
+#### Scenario: Streaming converter path skips unknown properties in Ignore mode
 
-#### Scenario: Unknown properties do not affect tracking
+- **WHEN** a patch document with `UnknownPropertyHandling = Ignore` is deserialized via the streaming converter path
+- **AND** the JSON contains unrecognized properties
+- **THEN** the converter calls `reader.Read()` and `reader.Skip()` for each unknown property
+- **AND** deserialization succeeds with only recognized properties tracked
 
-- GIVEN a `[PatchDocument]` class with property `Name`
-- AND JSON payload `{"name": "Alice", "extra1": 1, "extra2": "foo", "extra3": null}`
-- WHEN deserialized
-- THEN `ProvidedProperties` contains only `"Name"`
+#### Scenario: Buffered converter path skips unknown properties in Ignore mode
+
+- **WHEN** a patch document with `UnknownPropertyHandling = Ignore` is deserialized via the buffered converter path
+- **AND** the JSON contains unrecognized properties
+- **THEN** the converter calls `reader.Read()` and `reader.Skip()` for each unknown property
+- **AND** deserialization succeeds with only recognized properties tracked
+
+#### Scenario: Streaming converter path rejects unknown properties in Reject mode
+
+- **WHEN** a patch document with `UnknownPropertyHandling = Reject` is deserialized via the streaming converter path
+- **AND** the JSON contains unrecognized properties
+- **THEN** the converter collects unknown property names during iteration
+- **AND** throws a `JsonException` after the full object is read
+
+#### Scenario: Buffered converter path rejects unknown properties in Reject mode
+
+- **WHEN** a patch document with `UnknownPropertyHandling = Reject` is deserialized via the buffered converter path
+- **AND** the JSON contains unrecognized properties
+- **THEN** the converter collects unknown property names during iteration
+- **AND** throws a `JsonException` after the full object is read
+
+#### Scenario: Buffered path with init-only properties rejects unknowns
+
+- **GIVEN** a `[PatchDocument(UnknownPropertyHandling = Reject)]` class with init-only properties (triggers buffered deserialization)
+- **WHEN** deserialized from JSON containing unrecognized properties
+- **THEN** a `JsonException` is thrown listing all unknown property names
+
+#### Scenario: Resolver path sets UnmappedMemberHandling on .NET 8+
+
+- **GIVEN** a streaming-path `[PatchDocument(UnknownPropertyHandling = Reject)]` class
+- **WHEN** `PatchlyJsonTypeInfoResolver.GetTypeInfo` emits the `JsonTypeInfo` for this type
+- **THEN** the `JsonTypeInfo.UnmappedMemberHandling` property is set to `JsonUnmappedMemberHandling.Disallow`
+
+#### Scenario: Resolver path sets UnmappedMemberHandling to Skip for Ignore mode
+
+- **GIVEN** a streaming-path `[PatchDocument]` class (default Ignore)
+- **WHEN** `PatchlyJsonTypeInfoResolver.GetTypeInfo` emits the `JsonTypeInfo` for this type
+- **THEN** the `JsonTypeInfo.UnmappedMemberHandling` property is set to `JsonUnmappedMemberHandling.Skip`
+- **AND** unknown properties are ignored even if the app globally configures `JsonUnmappedMemberHandling.Disallow`
+
+#### Scenario: Nested deserialization preserves serializer delegation
+
+- **GIVEN** a parent `[PatchDocument]` with a nested `[PatchDocument]` property
+- **WHEN** the parent converter deserializes the nested property
+- **THEN** it delegates to `JsonSerializer.Deserialize<T>(ref reader, options)`
+- **AND** does NOT directly invoke the nested converter or any internal method
 
 ### Requirement: Duplicate Properties in JSON
 
@@ -419,4 +458,3 @@ Deterministic mode SHALL not introduce new tracking members into serialized JSON
 - **WHEN** serialized with `System.Text.Json`
 - **THEN** output JSON includes only model properties
 - **AND** output JSON excludes state/tracking infrastructure members
-
